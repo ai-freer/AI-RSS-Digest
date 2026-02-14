@@ -6,11 +6,11 @@ description: |
   - 使用 Andrej Karpathy 风格的高效 RSS 清单
   - 生成自动化流程配置
   - 获取 RSS 抓取、AI 总结、邮件推送的完整方案
-  - 配置多平台输出（邮件/飞书/钉钉/企业微信）
+  - 配置多平台输出（邮件/飞书/钉钉/企业微信/WhatsApp）
 
   此 Skill 内置 90+ 精选 RSS 源、完整的抓取脚本、总结策略、Prompt 模板和输出策略，
   可作为独立、可复用的每日摘要系统基线。
-version: 2.1.0
+version: 2.2.0
 ---
 
 # RSS Digest - 完整每日摘要系统
@@ -22,10 +22,10 @@ version: 2.1.0
 | 模块 | 说明 |
 |------|------|
 | **RSS 清单** | 内置 90+ 精选源，分类管理 |
-| **抓取策略** | 智能抓取、去重、过滤、缓存 |
+| **抓取策略** | 智能抓取、轻量去重、排序分层 |
 | **总结策略** | 分层摘要：精选推荐 + 分类速览 + 一句话总结 |
 | **Prompt 模板** | 科技资讯策展人角色，可配置风格 |
-| **输出策略** | 支持邮件、飞书、钉钉、企业微信、Webhook |
+| **输出策略** | 支持邮件、飞书、钉钉、企业微信、WhatsApp、Webhook |
 
 ## 快速开始
 
@@ -149,46 +149,38 @@ const CONCURRENCY = 5;
 const TIMEOUT = 10000;
 const RETRIES = 3;
 
-// 3. 智能去重
+// 3. 轻量去重（保留候选，交给排序层）
 - URL 标准化去重
-- 标题相似度检测（编辑距离 < 0.8）
-- 内容指纹去重
+- GUID 回退去重
+- 标题+内容指纹兜底去重
 
-// 4. 时间过滤
+// 4. 时间窗口过滤
 - 默认抓取 24h 内文章
 - 可配置时间窗口
 
 // 5. 内容清洗
 - 移除 HTML 标签
-- 提取正文（Readability 算法）
 - 截断过长内容（保留前 2000 字符）
 
-// 6. 错误处理
+// 6. 排序分层输出
+- 主榜 TopN（topArticles）
+- 候选榜 OtherTopN（otherTopArticles）
+- 支持可调参数 topN / otherTopN
+
+// 7. 错误处理
 - 单个源失败不影响整体
 - 失败源记录日志
 - 指数退避重试
 ```
 
-### 缓存策略
-
-```javascript
-// 本地缓存（运行时可用内存缓存）
-const CACHE = {
-  articles: new Map(),      // URL -> article
-  lastFetch: new Map(),     // feed URL -> timestamp
-  failedFeeds: new Set()    // 失败的源
-};
-
-// 缓存时间
-const CACHE_TTL = 30 * 60 * 1000; // 30 分钟
-```
+> 当前 `scripts/rss-fetcher.js` 未启用运行时缓存，主要依赖并发控制、超时重试与排序分层来保证稳定性和可读性。
 
 ## 总结策略
 
 ### 分层摘要架构
 
 ```
-Level 1: 精选推荐 (Top 5)
+Level 1: 精选推荐 (TopN，默认 5)
   └── 最值得深度阅读的文章
   └── 每篇给出推荐理由
 
@@ -196,11 +188,15 @@ Level 2: 分类速览 (By Category)
   └── 每个分类的概要统计
   └── 关键文章列表
 
-Level 3: 一句话总结 (One-liner)
+Level 3: 次级推荐 (OtherTopN，默认 30)
+  └── 排序靠后的高分候选
+  └── 用于快速扫读和补充阅读
+
+Level 4: 一句话总结 (One-liner)
   └── 每篇文章的核心观点
   └── 15-30 字精炼表达
 
-Level 4: 今日建议 (Daily Advice)
+Level 5: 今日建议 (Daily Advice)
   └── 基于今日内容的阅读策略
   └── 100 字以内的行动建议
 ```
@@ -276,7 +272,7 @@ function calculateScore(article) {
 
 ## 2. 分层输出
 
-### Level 1: 精选推荐 (Top {{highlightCount}})
+### Level 1: 精选推荐 (Top {{topN}})
 选择最值得深度阅读的文章，考虑：
 - 技术突破或重要发布
 - 深度分析而非表面新闻
@@ -357,21 +353,21 @@ function calculateScore(article) {
 
 | 模板 | 目标用户 | 核心场景 | 时间 | 特色功能 |
 |------|---------|---------|------|---------|
-| **Daily** | 所有用户 | 日常阅读 | 20分钟 | Top 5 + 详细分类速览 |
-| **Quick** | 忙碌用户 | 快速判断 | 3分钟 | Top 3 + 价值标签🔴🟡🟢 + 不做摘要 |
+| **Daily** | 所有用户 | 日常阅读 | 20分钟 | 主榜 TopN + 分类速览 + 次级榜 |
+| **Quick** | 忙碌用户 | 快速判断 | 3分钟 | 主榜 TopN（默认更少）+ 价值标签🔴🟡🟢 + 不做摘要 |
 | **Tech Dev** | 开发者/架构师 | 技术选型/学习 | 30分钟 | 技术雷达(Adopt/Trial/Assess/Hold) + 学习路径 |
 | **Product** | 产品经理/猎手 | 产品创新 | 20分钟 | 市场机会 + 可借鉴性评估 |
 | **Executive** | 高管/决策者 | 战略决策 | 15分钟 | 战略影响 + 行动建议 + 风险预警 |
 
 #### Quick vs Daily 核心区别
 
-**Daily**："给你20篇好文章的摘要"
-- 精选 Top 5，每篇都有详细推荐理由
+**Daily**："给你主榜 + 次级榜的完整阅读地图"
+- 精选按 TopN 输出（默认 5），每篇都有详细推荐理由
 - 各分类列出关键文章（最多5篇）
 - 适合：晚上有20分钟，想深入了解今日动态
 
-**Quick**："帮你判断今天哪3篇值得读"
-- 精选严格限制 Top 3，只给最核心的
+**Quick**："帮你先判断今天最该读的 TopN"
+- 精选按 TopN 输出（默认 3），只给最核心的
 - 其他文章**只给标题+价值标签**，不做任何摘要
 - 目标：3分钟内决定今天的阅读计划
 - 适合：早晨通勤，快速判断哪些文章值得留到晚上读
@@ -578,7 +574,11 @@ cp templates/prompt-executive.md system-prompt.txt
 
 **格式**: Markdown 消息（企业微信支持有限，需简化）
 
-### 5. Webhook 输出
+### 5. WhatsApp 输出
+
+**格式**: 纯文本消息（支持 `*bold*`、`_italic_`、`` `code` ``），超长自动分片
+
+### 6. Webhook 输出
 
 **格式**: 原始 JSON，供自定义处理
 
@@ -595,7 +595,7 @@ cp templates/prompt-executive.md system-prompt.txt
 ### 流程结构
 
 ```
-[定时触发] ──▶ [RSS 抓取脚本] ──▶ [数据处理] ──▶ [AI 摘要 LLM] ──▶ [格式化输出] ──▶ [发送]
+[定时触发] ──▶ [RSS 抓取脚本] ──▶ [数据处理] ──▶ [AI 摘要 LLM] ──▶ [格式化输出] ──▶ [投递模块 delivery.js] ──▶ [发送]
                                                   │
                                                   └──▶ [错误处理]
 ```
@@ -619,13 +619,19 @@ config:
 **输出**:
 ```json
 {
+  "topN": 5,
+  "otherTopN": 30,
   "articles": [...],
+  "topArticles": [...],
+  "otherTopArticles": [...],
   "stats": {
     "totalFeeds": 90,
+    "filteredFeeds": 90,
     "successFeeds": 85,
     "failedFeeds": 5,
-    "totalArticles": 120,
-    "filteredArticles": 45
+    "totalArticles": 1200,
+    "candidateArticles": 260,
+    "filteredArticles": 5
   },
   "errors": [...]
 }
@@ -645,13 +651,86 @@ config:
 - 邮件 → HTML
 - 飞书 → 消息卡片 JSON
 - 钉钉 → Markdown
+- 企业微信 → text（可分片）
+- WhatsApp → text（可分片）
 
 ### 步骤 5: 发送
 
+推荐使用 `scripts/delivery.js` 统一发送（含重试、分片、签名、dry-run）。
+
 根据配置的渠道发送：
 - 邮件 → 邮件节点
-- 飞书 → HTTP 节点调用 webhook
-- 钉钉 → HTTP 节点调用 webhook
+- 飞书 → `delivery.js` 调用 webhook
+- 钉钉 → `delivery.js` 调用 webhook（可选签名）
+- 企业微信 → `delivery.js` 调用 webhook（2048 bytes 自动分片）
+- WhatsApp → `delivery.js` 调用 Meta Business API（4096 chars 自动分片）
+
+#### 投递配置（delivery.js）
+
+**1) 飞书 Feishu**
+- 获取方式：群机器人 → 自定义机器人 → 复制完整 Webhook URL
+- 必填参数：`webhookUrl` 或 `webhookId`（二选一）
+- 示例：
+
+```json
+{
+  "channel": "feishu",
+  "config": {
+    "webhookUrl": "https://open.feishu.cn/open-apis/bot/v2/hook/xxxx"
+  }
+}
+```
+
+**2) 钉钉 DingTalk**
+- 获取方式：群机器人 → 自定义机器人 → 复制 `access_token`
+- 可选安全：开启“加签”后，填入 `secret`
+- 必填参数：`accessToken`
+- 可选参数：`secret`
+- 示例：
+
+```json
+{
+  "channel": "dingtalk",
+  "config": {
+    "accessToken": "xxxx",
+    "secret": "SECxxxx"
+  }
+}
+```
+
+**3) 企业微信 WeCom**
+- 获取方式：群机器人 → Webhook，复制 `key`
+- 必填参数：`key`
+- 示例：
+
+```json
+{
+  "channel": "wecom",
+  "config": {
+    "key": "xxxx"
+  }
+}
+```
+
+**4) WhatsApp (Meta Business API)**
+- 获取方式：Meta 开发者后台获取 System User Access Token、Phone Number ID
+- 必填参数：`accessToken`、`phoneNumberId`、`recipientPhone`（E.164 格式，如 `+8613800000000`）
+- 示例：
+
+```json
+{
+  "channel": "whatsapp",
+  "config": {
+    "accessToken": "EAA...",
+    "phoneNumberId": "1234567890",
+    "recipientPhone": "+8613800000000"
+  }
+}
+```
+
+**调试建议**
+- 设置 `config.dryRun = true` 可只打印 payload 不实际发送
+- 默认重试 3 次（指数退避），可通过 `retries/baseDelayMs/maxDelayMs` 调整
 
 ## 使用指南
 
@@ -674,14 +753,14 @@ config:
 # 自定义时间窗口
 /rss-digest setup --hours 48
 
-# 自定义精选数量
-/rss-digest setup --highlights 7
+# 自定义主榜/次级榜数量
+/rss-digest setup --topN 7 --otherTopN 20
 
 # 自定义模型
 /rss-digest setup --model claude-3-5-sonnet
 
 # 组合配置
-/rss-digest setup --channel feishu --category AI --highlights 5 --hours 24
+/rss-digest setup --channel feishu --category AI --topN 5 --otherTopN 15 --hours 24
 ```
 
 ### 更新 RSS 清单
@@ -707,7 +786,8 @@ rss-digest/
 ├── hn-popular-blogs-2025.opml        # 原始 OPML 导入文件
 ├── scripts/
 │   ├── rss-fetcher.js               # RSS 抓取脚本
-│   ├── output-formatter.js          # 输出格式化
+│   ├── output-formatter.js          # 输出格式化（含 WhatsApp/分片）
+│   ├── delivery.js                  # 多平台投递（重试/签名/分片）
 ├── templates/
 │   ├── README.md                    # 模板使用指南
 │   ├── prompt-daily.md              # 日常阅读（默认）
@@ -723,13 +803,13 @@ rss-digest/
 
 1. **模型选择**: Haiku 足够，Sonnet 仅在需要深度分析时使用
 2. **文章数量**: 限制每天最多 50 篇
-3. **缓存利用**: 运行时使用内存缓存，避免重复抓取
+3. **候选控制**: 使用 `topN` / `otherTopN` 控制输出规模，避免下游摘要过载
 4. **时间窗口**: 24 小时足够，48 小时仅在周末后使用
 
 ### 质量保证
 
 1. **来源筛选**: 优先高质量源，移除低信噪比源
-2. **去重严格**: URL + 标题 + 内容指纹三重去重
+2. **排序优先**: 轻量去重后交由评分排序，避免过度筛除导致漏读
 3. **人工反馈**: 定期根据阅读反馈调整精选算法
 4. **A/B 测试**: 尝试不同提示词模板，对比效果
 

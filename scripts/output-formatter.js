@@ -2,10 +2,10 @@
  * Output Formatter for RSS Digest
  *
  * 用于自动化流程的输出格式化脚本
- * 支持邮件、飞书、钉钉、企业微信等多种输出格式
+ * 支持邮件、飞书、钉钉、企业微信、WhatsApp 等多种输出格式
  *
  * @author RSS Digest Skill
- * @version 2.1.0
+ * @version 2.2.0
  */
 
 // ==================== 邮件 HTML 模板 ====================
@@ -206,6 +206,8 @@ const EMAIL_HTML_TEMPLATE = `<!DOCTYPE html>
     </div>
     {{/each}}
 
+    {{otherTopSection}}
+
     <div class="footer">
       由 RSS Digest 生成于 {{metadata.generatedAt}}<br>
       <a href="{{unsubscribeLink}}">取消订阅</a>
@@ -244,6 +246,7 @@ const EMAIL_TEXT_TEMPLATE = `📰 每日科技阅读 ({{date}})
 
 {{/each}}
 {{/each}}
+{{otherTopSection}}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 由 RSS Digest 生成于 {{metadata.generatedAt}}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
@@ -350,7 +353,7 @@ const WECOM_TEMPLATE = `📰 每日科技阅读 ({{date}})
 // ==================== Webhook JSON 模板 ====================
 
 const WEBHOOK_TEMPLATE = {
-  version: "2.1.0",
+  version: "2.2.0",
   timestamp: "{{metadata.generatedAt}}",
   type: "rss_digest",
   data: {
@@ -363,6 +366,9 @@ const WEBHOOK_TEMPLATE = {
 };
 
 // ==================== 格式化函数 ====================
+
+const DEFAULT_WHATSAPP_MAX_LENGTH = 4096;
+const DEFAULT_WECOM_SAFE_MAX_LENGTH = 1800;
 
 /**
  * 简单的模板引擎
@@ -419,9 +425,92 @@ function renderTemplate(template, data) {
 }
 
 /**
+ * 按段落优先切分长消息，并在末尾追加分页标记 (1/3)
+ */
+function splitMessage(text, maxLength) {
+  if (typeof text !== 'string') return [];
+  if (!Number.isInteger(maxLength) || maxLength < 32) {
+    throw new Error('splitMessage requires maxLength >= 32');
+  }
+  if (text.length <= maxLength) return [text];
+
+  const chunks = [];
+  const paragraphs = text.split(/\n{2,}/).filter(Boolean);
+  let current = '';
+
+  const flushCurrent = () => {
+    if (current) {
+      chunks.push(current);
+      current = '';
+    }
+  };
+
+  const appendWithLimit = (segment) => {
+    const normalized = String(segment || '').trim();
+    if (!normalized) return;
+
+    if (!current) {
+      if (normalized.length <= maxLength) {
+        current = normalized;
+        return;
+      }
+      // 段落本身超长：按行+字符兜底切分
+      const lines = normalized.split('\n');
+      let longPart = '';
+      lines.forEach((line) => {
+        const candidate = longPart ? `${longPart}\n${line}` : line;
+        if (candidate.length <= maxLength) {
+          longPart = candidate;
+          return;
+        }
+        if (longPart) {
+          chunks.push(longPart);
+        }
+        longPart = '';
+        let rest = line;
+        while (rest.length > maxLength) {
+          chunks.push(rest.slice(0, maxLength));
+          rest = rest.slice(maxLength);
+        }
+        longPart = rest;
+      });
+      if (longPart) {
+        current = longPart;
+      }
+      return;
+    }
+
+    const candidate = `${current}\n\n${normalized}`;
+    if (candidate.length <= maxLength) {
+      current = candidate;
+      return;
+    }
+
+    flushCurrent();
+    appendWithLimit(normalized);
+  };
+
+  paragraphs.forEach(appendWithLimit);
+  flushCurrent();
+
+  if (chunks.length <= 1) return chunks;
+  const total = chunks.length;
+  return chunks.map((chunk, idx) => {
+    const suffix = ` (${idx + 1}/${total})`;
+    if (chunk.length + suffix.length <= maxLength) {
+      return `${chunk}${suffix}`;
+    }
+    return `${chunk.slice(0, maxLength - suffix.length)}${suffix}`;
+  });
+}
+
+/**
  * 格式化飞书卡片
  */
 function formatFeishuCard(data) {
+  const highlights = Array.isArray(data.highlights) ? data.highlights : [];
+  const byCategory = data.byCategory && typeof data.byCategory === 'object' ? data.byCategory : {};
+  const otherTopArticles = Array.isArray(data.otherTopArticles) ? data.otherTopArticles : [];
   const card = JSON.parse(JSON.stringify(FEISHU_TEMPLATE));
 
   // 设置标题
@@ -453,7 +542,7 @@ function formatFeishuCard(data) {
     text: { tag: "lark_md", content: "**⭐ 深度推荐**" }
   });
 
-  data.highlights.forEach(h => {
+  highlights.forEach(h => {
     elements.push({
       tag: "div",
       text: {
@@ -465,7 +554,7 @@ function formatFeishuCard(data) {
   });
 
   // 分类速览
-  Object.entries(data.byCategory).forEach(([category, articles]) => {
+  Object.entries(byCategory).forEach(([category, articles]) => {
     if (articles.length === 0) return;
 
     elements.push({
@@ -493,6 +582,23 @@ function formatFeishuCard(data) {
     elements.push({ tag: "hr" });
   });
 
+  if (otherTopArticles.length > 0) {
+    elements.push({
+      tag: "div",
+      text: { tag: "lark_md", content: `**📌 次级推荐 (${otherTopArticles.length}篇)**` }
+    });
+    otherTopArticles.slice(0, 10).forEach((a, idx) => {
+      elements.push({
+        tag: "div",
+        text: {
+          tag: "lark_md",
+          content: `${idx + 1}. [${a.title}](${a.link})\n📰 ${a.source}${a.score !== undefined ? ` · Score: ${a.score}` : ''}`
+        }
+      });
+    });
+    elements.push({ tag: "hr" });
+  }
+
   // 页脚
   elements.push({
     tag: "div",
@@ -510,6 +616,9 @@ function formatFeishuCard(data) {
  * 格式化钉钉消息
  */
 function formatDingtalk(data) {
+  const highlights = Array.isArray(data.highlights) ? data.highlights : [];
+  const byCategory = data.byCategory && typeof data.byCategory === 'object' ? data.byCategory : {};
+  const otherTopArticles = Array.isArray(data.otherTopArticles) ? data.otherTopArticles : [];
   let markdown = `# 📰 每日科技阅读 (${data.date})\n\n`;
 
   // 统计
@@ -523,7 +632,7 @@ function formatDingtalk(data) {
 
   // 深度推荐
   markdown += `## ⭐ 深度推荐\n\n`;
-  data.highlights.forEach(h => {
+  highlights.forEach(h => {
     markdown += `**${h.rank}.** [${h.title}](${h.link})\n`;
     markdown += `📰 ${h.source} · ${h.category}\n`;
     markdown += `💡 ${h.reason}\n\n`;
@@ -531,7 +640,7 @@ function formatDingtalk(data) {
   markdown += `---\n\n`;
 
   // 分类
-  Object.entries(data.byCategory).forEach(([category, articles]) => {
+  Object.entries(byCategory).forEach(([category, articles]) => {
     if (articles.length === 0) return;
 
     markdown += `## ${category} (${articles.length}篇)\n\n`;
@@ -542,6 +651,15 @@ function formatDingtalk(data) {
     });
     markdown += `---\n\n`;
   });
+
+  if (otherTopArticles.length > 0) {
+    markdown += `## 📌 次级推荐 (${otherTopArticles.length}篇)\n\n`;
+    otherTopArticles.slice(0, 10).forEach((a, idx) => {
+      markdown += `${idx + 1}. [${a.title}](${a.link})\n`;
+      markdown += `   > 📰 ${a.source}${a.score !== undefined ? ` · Score: ${a.score}` : ''}\n`;
+    });
+    markdown += `\n---\n\n`;
+  }
 
   markdown += `*由 RSS Digest 生成于 ${data.metadata.generatedAt}*`;
 
@@ -555,16 +673,19 @@ function formatDingtalk(data) {
  * 格式化企业微信消息
  */
 function formatWecom(data) {
+  const highlights = Array.isArray(data.highlights) ? data.highlights : [];
+  const byCategory = data.byCategory && typeof data.byCategory === 'object' ? data.byCategory : {};
+  const otherTopArticles = Array.isArray(data.otherTopArticles) ? data.otherTopArticles : [];
   let text = `📰 每日科技阅读 (${data.date})\n\n`;
   text += `💡 ${data.dailyAdvice}\n\n`;
   text += `⭐ 深度推荐:\n`;
 
-  data.highlights.forEach(h => {
+  highlights.forEach(h => {
     text += `${h.rank}. ${h.title}\n${h.link}\n\n`;
   });
 
   text += `📊 分类速览:\n`;
-  Object.entries(data.byCategory).forEach(([category, articles]) => {
+  Object.entries(byCategory).forEach(([category, articles]) => {
     if (articles.length === 0) return;
     text += `${category}(${articles.length}篇):\n`;
     articles.slice(0, 3).forEach(a => {
@@ -576,11 +697,75 @@ function formatWecom(data) {
     text += `\n`;
   });
 
+  if (otherTopArticles.length > 0) {
+    text += `📌 次级推荐(${otherTopArticles.length}篇):\n`;
+    otherTopArticles.slice(0, 5).forEach((a, idx) => {
+      text += `${idx + 1}. ${a.title}\n`;
+    });
+    text += `\n`;
+  }
+
   text += `生成于 ${data.metadata.generatedAt}`;
+
+  const chunks = splitMessage(text, DEFAULT_WECOM_SAFE_MAX_LENGTH);
 
   return {
     msgtype: "text",
-    text: { content: text }
+    text: { content: text },
+    chunks
+  };
+}
+
+/**
+ * 格式化 WhatsApp 消息
+ */
+function formatWhatsApp(data) {
+  const highlights = Array.isArray(data.highlights) ? data.highlights : [];
+  const byCategory = data.byCategory && typeof data.byCategory === 'object' ? data.byCategory : {};
+  const otherTopArticles = Array.isArray(data.otherTopArticles) ? data.otherTopArticles : [];
+
+  let text = `*📰 每日科技阅读 (${data.date})*\n\n`;
+  text += `*💡 今日建议*\n${data.dailyAdvice}\n\n`;
+  text += `*⭐ 深度推荐*\n`;
+
+  highlights.forEach(h => {
+    text += `*${h.rank}.* ${h.title}\n`;
+    text += `${h.link}\n`;
+    text += `_📰 ${h.source} · ${h.category}_\n`;
+    text += `\`${h.reason}\`\n\n`;
+  });
+
+  text += `*📊 分类速览*\n`;
+  Object.entries(byCategory).forEach(([category, articles]) => {
+    if (articles.length === 0) return;
+    text += `\n*${category} (${articles.length}篇)*\n`;
+    articles.slice(0, 3).forEach((a, idx) => {
+      text += `${idx + 1}. ${a.title}\n${a.link}\n`;
+    });
+    if (articles.length > 3) {
+      text += `...还有 ${articles.length - 3} 篇\n`;
+    }
+  });
+
+  if (otherTopArticles.length > 0) {
+    text += `\n*📌 次级推荐 (${otherTopArticles.length}篇)*\n`;
+    otherTopArticles.slice(0, 5).forEach((a, idx) => {
+      text += `${idx + 1}. ${a.title}\n${a.link}\n`;
+    });
+  }
+
+  text += `\n_生成于 ${data.metadata.generatedAt}_`;
+
+  const messages = splitMessage(text, DEFAULT_WHATSAPP_MAX_LENGTH);
+  return {
+    messaging_product: "whatsapp",
+    messages: messages.map(message => ({
+      type: "text",
+      text: {
+        preview_url: true,
+        body: message
+      }
+    }))
   };
 }
 
@@ -588,6 +773,9 @@ function formatWecom(data) {
  * 格式化邮件 HTML
  */
 function formatEmailHtml(data) {
+  const highlights = Array.isArray(data.highlights) ? data.highlights : [];
+  const byCategory = data.byCategory && typeof data.byCategory === 'object' ? data.byCategory : {};
+  const otherTopArticles = Array.isArray(data.otherTopArticles) ? data.otherTopArticles : [];
   let html = EMAIL_HTML_TEMPLATE;
 
   // 替换简单变量
@@ -621,7 +809,7 @@ function formatEmailHtml(data) {
   html = html.replace(/\{\{summary\.categories\.综合\}\}/g, data.summary.categories?.综合 || 0);
 
   // 替换 highlights
-  const highlightsHtml = data.highlights.map(h => {
+  const highlightsHtml = highlights.map(h => {
     // 深度风格的额外字段
     const audienceHtml = h.audience ? `<div class="audience">👤 适合: ${h.audience}</div>` : '';
     const readTimeHtml = h.readTime ? `<div class="readtime">⏱️ ${h.readTime}</div>` : '';
@@ -643,7 +831,7 @@ function formatEmailHtml(data) {
   html = html.replace(/\{\{#each highlights\}\}[\s\S]*?\{\{\/each\}\}/, highlightsHtml);
 
   // 替换 byCategory
-  const categoriesHtml = Object.entries(data.byCategory).map(([category, articles]) => {
+  const categoriesHtml = Object.entries(byCategory).map(([category, articles]) => {
     if (articles.length === 0) return '';
     const articlesHtml = articles.map(a => {
       // 深度风格的额外字段
@@ -669,6 +857,20 @@ function formatEmailHtml(data) {
   }).join('');
   html = html.replace(/\{\{#each byCategory\}\}[\s\S]*?\{\{\/each\}\}/, categoriesHtml);
 
+  const otherTopHtml = otherTopArticles.length > 0
+    ? `
+      <div class="category">
+        <h3>📌 次级推荐 (${otherTopArticles.length}篇)</h3>
+        ${otherTopArticles.slice(0, 10).map((a, idx) => `
+        <div class="article">
+          <div class="article-title"><a href="${a.link}">${idx + 1}. ${a.title}</a></div>
+          <div class="source">📰 ${a.source}${a.score !== undefined ? ` · Score: ${a.score}` : ''}</div>
+        </div>`).join('')}
+      </div>
+    `
+    : '';
+  html = html.replace(/\{\{otherTopSection\}\}/g, otherTopHtml);
+
   return html;
 }
 
@@ -676,6 +878,9 @@ function formatEmailHtml(data) {
  * 格式化邮件纯文本
  */
 function formatEmailText(data) {
+  const highlights = Array.isArray(data.highlights) ? data.highlights : [];
+  const byCategory = data.byCategory && typeof data.byCategory === 'object' ? data.byCategory : {};
+  const otherTopArticles = Array.isArray(data.otherTopArticles) ? data.otherTopArticles : [];
   let text = EMAIL_TEXT_TEMPLATE;
 
   // 替换简单变量
@@ -685,13 +890,13 @@ function formatEmailText(data) {
   });
 
   // 替换 highlights
-  const highlightsText = data.highlights.map(h =>
+  const highlightsText = highlights.map(h =>
     `#${h.rank}. ${h.title}\n   链接: ${h.link}\n   来源: ${h.source} · ${h.category}\n   推荐: ${h.reason}\n`
   ).join('\n');
   text = text.replace(/\{\{#each highlights\}\}[\s\S]*?\{\{\/each\}\}/, highlightsText);
 
   // 替换 byCategory
-  const categoriesText = Object.entries(data.byCategory).map(([category, articles]) => {
+  const categoriesText = Object.entries(byCategory).map(([category, articles]) => {
     if (articles.length === 0) return '';
     const articlesText = articles.map(a =>
       `· ${a.title}\n  ${a.link}\n  ${a.oneLiner} (${a.source})\n`
@@ -699,6 +904,11 @@ function formatEmailText(data) {
     return `${category} (${articles.length}篇)\n\n${articlesText}`;
   }).join('\n');
   text = text.replace(/\{\{#each byCategory\}\}[\s\S]*?\{\{\/each\}\}/, categoriesText);
+
+  const otherTopText = otherTopArticles.length > 0
+    ? `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📌 次级推荐 (${otherTopArticles.length}篇)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n${otherTopArticles.slice(0, 10).map((a, idx) => `${idx + 1}. ${a.title}\n   ${a.link}\n   ${a.source}${a.score !== undefined ? ` · Score: ${a.score}` : ''}\n`).join('\n')}\n`
+    : '';
+  text = text.replace(/\{\{otherTopSection\}\}/g, otherTopText);
 
   return text;
 }
@@ -710,7 +920,7 @@ function formatEmailText(data) {
  *
  * @param {Object} params - 输入参数
  * @param {Object} params.summaryData - AI 摘要的输出数据
- * @param {string} params.channel - 输出渠道 (email/feishu/dingtalk/wecom/webhook)
+ * @param {string} params.channel - 输出渠道 (email/feishu/dingtalk/wecom/whatsapp/webhook)
  * @returns {Object} 格式化后的输出
  */
 async function main({ params }) {
@@ -744,6 +954,10 @@ async function main({ params }) {
       result = formatWecom(summaryData);
       break;
 
+    case 'whatsapp':
+      result = formatWhatsApp(summaryData);
+      break;
+
     case 'webhook':
       result = {
         ...WEBHOOK_TEMPLATE,
@@ -768,7 +982,9 @@ if (typeof module !== 'undefined' && module.exports) {
     formatEmailText,
     formatFeishuCard,
     formatDingtalk,
-    formatWecom
+    formatWecom,
+    formatWhatsApp,
+    splitMessage
   };
 }
 

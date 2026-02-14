@@ -2,7 +2,7 @@
  * RSS Fetcher for Automation Workflow
  *
  * 用于自动化流程的 RSS 抓取脚本
- * 内置 90+ 精选 RSS 源，支持智能去重、过滤、缓存
+ * 内置 90+ 精选 RSS 源，支持智能抓取、轻量去重、排序分层
  * 分类方式：AI 动态分类（基于文章内容而非预定义标签）
  *
  * @author RSS Digest Skill
@@ -632,14 +632,13 @@ async function checkFeedsHealth(feeds, concurrency = CONFIG.CONCURRENCY, timeout
 }
 
 /**
- * 去重和过滤
+ * 轻量去重和候选准备（以排序为主，尽量少做强过滤）
  */
-function deduplicateAndFilter(articles, timeWindowHours = CONFIG.TIME_WINDOW_HOURS) {
-  const seenUrls = new Set();
-  const seenFingerprints = new Set();
+function prepareCandidates(articles, timeWindowHours = CONFIG.TIME_WINDOW_HOURS) {
+  const seenKeys = new Set();
   const cutoffTime = new Date(Date.now() - timeWindowHours * 60 * 60 * 1000);
 
-  const filtered = [];
+  const candidates = [];
 
   for (const article of articles) {
     // 时间过滤
@@ -648,43 +647,28 @@ function deduplicateAndFilter(articles, timeWindowHours = CONFIG.TIME_WINDOW_HOU
       continue;
     }
 
-    // URL 去重
-    const normalizedUrl = article.link.replace(/[?#].*$/, '');
-    if (seenUrls.has(normalizedUrl)) {
-      continue;
-    }
-    seenUrls.add(normalizedUrl);
-
-    // 内容指纹去重
-    const fingerprint = contentFingerprint(article.title + article.content);
-    let isDuplicate = false;
-    for (const seen of seenFingerprints) {
-      if (similarity(fingerprint, seen) > 0.85) {
-        isDuplicate = true;
-        break;
-      }
-    }
-    if (isDuplicate) {
-      continue;
-    }
-    seenFingerprints.add(fingerprint);
-
-    // 内容质量过滤
-    if (article.content.length < 50) {
+    // 最小质量门槛：标题和正文至少有一个有意义
+    const title = (article.title || '').trim();
+    const content = (article.content || '').trim();
+    if (!title && content.length < 20) {
       continue;
     }
 
-    filtered.push({
+    // 主键去重：优先 link，其次 guid，最后标题+内容指纹
+    const normalizedUrl = (article.link || '').replace(/[?#].*$/, '');
+    const dedupKey = normalizedUrl || article.guid || contentFingerprint(title + content);
+    if (dedupKey && seenKeys.has(dedupKey)) continue;
+    if (dedupKey) seenKeys.add(dedupKey);
+
+    candidates.push({
       ...article,
       pubDate: pubDate ? pubDate.toISOString() : new Date().toISOString()
     });
   }
 
   // 按时间排序
-  filtered.sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate));
-
-  // 限制数量
-  return filtered.slice(0, CONFIG.MAX_ARTICLES);
+  candidates.sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate));
+  return candidates;
 }
 
 /**
@@ -730,6 +714,8 @@ function scoreAndSort(articles) {
  * @param {boolean} params.includeCN - 可选：是否接入中文源（默认 false）
  * @param {string} params.cnTier - 可选：中文源等级 A/B/ALL（默认 A）
  * @param {string} params.languageFilter - 可选：语言筛选 all/zh/global（默认 all）
+ * @param {number} params.topN - 可选：主榜 TopN（默认等于 maxArticles）
+ * @param {number} params.otherTopN - 可选：候选榜数量（默认 30）
  * @returns {Object} 输出结果
  */
 async function main({ params }) {
@@ -741,7 +727,9 @@ async function main({ params }) {
     healthTimeout = 5000,
     includeCN = false,
     cnTier = 'A',
-    languageFilter = 'all'
+    languageFilter = 'all',
+    topN = null,
+    otherTopN = 30
   } = params || {};
 
   const normalizedLanguageFilter = normalizeLanguageFilter(languageFilter);
@@ -775,17 +763,25 @@ async function main({ params }) {
   // 抓取
   const { articles: rawArticles, errors } = await fetchFeeds(feeds);
 
-  // 去重过滤
-  let articles = deduplicateAndFilter(rawArticles, hours);
+  // 轻量去重，保留更多候选给排序层处理
+  let articles = prepareCandidates(rawArticles, hours);
 
   // 评分排序
   articles = scoreAndSort(articles);
 
-  // 限制数量
-  articles = articles.slice(0, maxArticles);
+  const primaryTopN = Number.isFinite(Number(topN)) && Number(topN) > 0
+    ? Number(topN)
+    : maxArticles;
+  const secondaryTopN = Number.isFinite(Number(otherTopN)) && Number(otherTopN) >= 0
+    ? Number(otherTopN)
+    : 30;
+
+  // 分层输出：主榜 TopN + 候选榜 OtherTopN
+  const topArticles = articles.slice(0, primaryTopN);
+  const otherTopArticles = articles.slice(primaryTopN, primaryTopN + secondaryTopN);
 
   // 格式化输出
-  const formatted = articles.map(a => ({
+  const formatArticle = (a) => ({
     title: a.title,
     link: a.link,
     content: a.content,
@@ -795,12 +791,18 @@ async function main({ params }) {
     sourceTier: a.sourceTier,
     pubDate: a.pubDate,
     score: Math.round(a.score * 100) / 100
-  }));
+  });
+  const formatted = topArticles.map(formatArticle);
+  const formattedOthers = otherTopArticles.map(formatArticle);
 
   return {
     result: {
       date: new Date().toISOString().split('T')[0],
+      topN: primaryTopN,
+      otherTopN: secondaryTopN,
       articles: formatted,
+      topArticles: formatted,
+      otherTopArticles: formattedOthers,
       stats: {
         totalFeeds: allFeeds.length,
         filteredFeeds: feeds.length,
@@ -810,6 +812,7 @@ async function main({ params }) {
         cnTier: effectiveIncludeCN ? normalizeTier(cnTier) : 'DISABLED',
         languageFilter: normalizedLanguageFilter,
         totalArticles: rawArticles.length,
+        candidateArticles: articles.length,
         filteredArticles: formatted.length
       },
       errors: errors.length > 0 ? errors : undefined

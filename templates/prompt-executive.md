@@ -40,7 +40,7 @@
 
 # Output Requirements
 
-### Level 1: 战略精选 (Top 5)
+### Level 1: 战略精选 (TopN，默认 5)
 选择最具战略价值的文章。
 
 每篇给出：

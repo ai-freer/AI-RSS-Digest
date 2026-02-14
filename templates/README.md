@@ -4,25 +4,25 @@
 
 | 模板 | 文件 | 目标用户 | 核心场景 | 时间 | 内容量 | 特色 |
 |------|------|---------|---------|------|--------|------|
-| **Daily** | `prompt-daily.md` | 所有用户 | 日常阅读 | 20分钟 | Top 5 + 详细分类 | 适合人群标签 |
-| **Quick** | `prompt-quick.md` | 忙碌用户 | 快速判断 | 3分钟 | **Top 3** + 标题列表 | **不做摘要**，只给价值标签🔴🟡🟢 |
-| **Tech Dev** | `prompt-tech-dev.md` | 开发者/架构师 | 技术选型/学习 | 30分钟 | Top 5-7 | 技术雷达(Adopt/Trial/Assess/Hold) |
-| **Product** | `prompt-product.md` | PM/产品猎手 | 产品创新 | 20分钟 | Top 5 + 过滤 | 市场机会 + 可借鉴性评估 |
-| **Executive** | `prompt-executive.md` | 高管/决策者 | 战略决策 | 15分钟 | Top 5 + 过滤 | 战略影响 + 行动建议 + 风险预警 |
+| **Daily** | `prompt-daily.md` | 所有用户 | 日常阅读 | 20分钟 | 主榜 TopN + 分类速览 + 次级榜 | 适合人群标签 |
+| **Quick** | `prompt-quick.md` | 忙碌用户 | 快速判断 | 3分钟 | 主榜 TopN（更少）+ 次级榜标题 | **不做详细摘要**，只给价值标签🔴🟡🟢 |
+| **Tech Dev** | `prompt-tech-dev.md` | 开发者/架构师 | 技术选型/学习 | 30分钟 | 主榜 TopN + 次级榜 | 技术雷达(Adopt/Trial/Assess/Hold) |
+| **Product** | `prompt-product.md` | PM/产品猎手 | 产品创新 | 20分钟 | 主榜 TopN + 次级榜 | 市场机会 + 可借鉴性评估 |
+| **Executive** | `prompt-executive.md` | 高管/决策者 | 战略决策 | 15分钟 | 主榜 TopN + 次级榜 | 战略影响 + 行动建议 + 风险预警 |
 
 ### Quick vs Daily 核心区别
 
 | 维度 | Daily | Quick |
 |------|-------|-------|
-| **精选数量** | Top 5 | **Top 3**（更严格） |
-| **其他文章** | 详细分类速览（每篇有摘要） | **只给标题+颜色标签**（无摘要） |
-| **核心目标** | 给你今日资讯摘要 | **帮你决策读哪3篇** |
+| **主榜数量** | TopN（默认可设为 5） | TopN（默认可设为 3，更严格） |
+| **次级内容** | 分类速览 + OtherTopN（可含摘要） | OtherTopN 标题速览（无详细摘要） |
+| **核心目标** | 给你今日资讯摘要与阅读顺序 | 帮你快速决策先读哪几篇 |
 | **阅读时间** | 20分钟 | **3分钟** |
 | **使用场景** | 晚上深度阅读 | **早晨快速规划** |
 
 **一句话区别**：
-- **Daily**："给你20篇好文章的摘要"
-- **Quick**："帮你判断今天哪3篇值得读，其他的扫一眼标题就行"
+- **Daily**："给你主榜 + 次级榜的完整阅读地图"
+- **Quick**："先给你最值得读的主榜，次级榜只做快速扫读"
 
 ---
 
@@ -106,6 +106,8 @@
 - `summary.totalArticles`: 文章总数
 - `summary.categories`: 各分类数量
 - `highlights`: 精选推荐数组
+- `topArticles`: 主榜文章数组（来自 RSS 排序层）
+- `otherTopArticles`: 次级推荐数组（来自 RSS 排序层）
 - `byCategory`: 分类文章列表
 - `metadata`: 元信息
 
@@ -115,7 +117,7 @@
 - `highlights[].value`: 🔴🟡🟢 价值判断
 - `highlights[].judgement`: 一句话价值判断
 - `highlights[].readTime`: 预估阅读时间
-- `quickList`: 速览列表（非精选文章）
+- `quickList`: 速览列表（建议由 `otherTopArticles` 映射生成）
 
 #### Tech Dev 模板
 - `highlights[].techRadar`: 技术雷达评估
@@ -224,7 +226,8 @@ cp prompt-daily.md prompt-custom.md
 ### 推荐修改点
 
 1. **调整精选数量**
-   - Daily: 默认 5 篇 → 可改为 3 篇（更精简）或 7 篇（更详细）
+   - 调整 `topN`：如 3（更精简）或 7（更详细）
+   - 调整 `otherTopN`：控制次级榜长度，避免输出过长
 
 2. **添加关注领域**
    - 在 Tech Dev 中添加特定技术栈关注（如 Go/云原生）

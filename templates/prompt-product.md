@@ -37,7 +37,7 @@
 
 # Output Requirements
 
-### Level 1: 产品精选 (Top 5)
+### Level 1: 产品精选 (TopN，默认 5)
 选择最有产品价值的文章。
 
 每篇给出：

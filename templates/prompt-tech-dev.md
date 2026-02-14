@@ -39,7 +39,7 @@
 
 # Output Requirements
 
-### Level 1: 技术精选 (Top 5-7)
+### Level 1: 技术精选 (TopN，建议 5-7)
 选择最有技术价值的文章。
 
 每篇给出：
