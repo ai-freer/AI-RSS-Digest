@@ -414,6 +414,25 @@ cp templates/prompt-product.md system-prompt.txt
 cp templates/prompt-executive.md system-prompt.txt
 ```
 
+### 分层摘要模板（新增）
+
+> 上述 5 个模板用于“筛选/策展风格”（前置步骤）。  
+> 分层摘要模板用于“总结/摘要”（后置步骤）。二者是串联关系，不是替代关系。
+
+- `templates/prompt-summarize-tiered.md`
+  - Tier1（top 几篇）: 深度摘要（summary + keyPoints + action + risk）
+  - Tier2（其余十几篇）: 1-2 句速览（oneLiner）
+
+`scripts/ai-summarizer.js` 使用该模板做摘要阶段处理。
+
+#### 摘要质量闸门（默认开启）
+
+`scripts/ai-summarizer.js` 在输出前会自动执行质量校验与修复：
+- Tier1：摘要至少满足最小句数，不足时由 keyPoints/正文补齐；`action`、`risk` 为空时自动补默认建议。
+- Tier2：`oneLiner` 过短或缺失时标记为“信息不足，建议查看原文。”；过长时自动截断。
+- 质量结果写入 `metadata.qualityGates`（含规则与 warnings），便于观测与调试。
+- `scripts/output-formatter.js` 会把 warnings 聚合为可读摘要（总量 + 类型计数），在输出头部展示“🧪 质量闸门”。
+
 #### Breaking News 处理
 
 **Breaking News 不是独立模板，而是一种叠加模式**。
@@ -763,6 +782,43 @@ config:
 /rss-digest setup --channel feishu --category AI --topN 5 --otherTopN 15 --hours 24
 ```
 
+### 一次性执行完整链路（抓取 + 摘要 + 格式化）
+
+> 适用于被上层 Agent 直接调用，不依赖手工拼接中间步骤。
+
+```bash
+# 必填：LLM API Key（OpenAI 兼容）
+export OPENAI_API_KEY="sk-..."
+
+# 可选：模型与网关
+export LLM_MODEL="gpt-4.1-mini"
+# export OPENAI_BASE_URL="https://api.openai.com/v1"
+
+# 运行 24h 链路（筛选后再摘要），输出到 tmp/
+node scripts/run-digest-once.js \
+  --hours 24 \
+  --topN 7 \
+  --otherTopN 20 \
+  --curationTemplate templates/prompt-daily.md \
+  --summaryTemplate templates/prompt-summarize-tiered.md \
+  --channel email
+```
+
+输出文件（自动生成）：
+- `tmp/digest-<timestamp>-fetch.json`
+- `tmp/digest-<timestamp>-summary.json`（LLM 摘要核心产物）
+- `tmp/digest-<timestamp>-formatted-<channel>.json`
+
+可选降级（无外部 LLM 时不断流程）：
+
+```bash
+node scripts/run-digest-once.js \
+  --hours 24 \
+  --summaryTemplate templates/prompt-summarize-tiered.md \
+  --allowHeuristicFallback \
+  --channel wecom
+```
+
 ### 更新 RSS 清单
 
 ```bash
@@ -783,9 +839,12 @@ rss-digest/
 ├── SKILL.md                          # 本文件
 ├── RSS_FEEDS.md                      # 完整 RSS 清单
 ├── RSS_FEEDS_CN.md                   # 中文 RSS 候选源（建议清单）
-├── hn-popular-blogs-2025.opml        # 原始 OPML 导入文件
+├── resources/
+│   └── hn-popular-blogs-2025.opml   # 原始 OPML 导入文件
 ├── scripts/
 │   ├── rss-fetcher.js               # RSS 抓取脚本
+│   ├── ai-summarizer.js             # 摘要生成（Tier1/Tier2 + 兼容桥接）
+│   ├── run-digest-once.js           # 一次性执行抓取→摘要→格式化
 │   ├── output-formatter.js          # 输出格式化（含 WhatsApp/分片）
 │   ├── delivery.js                  # 多平台投递（重试/签名/分片）
 ├── templates/
@@ -794,7 +853,8 @@ rss-digest/
 │   ├── prompt-quick.md              # 快速扫描
 │   ├── prompt-tech-dev.md           # 技术开发（选型+学习）
 │   ├── prompt-product.md            # 产品经理/Product Hunter
-│   └── prompt-executive.md          # 高管/决策者
+│   ├── prompt-executive.md          # 高管/决策者
+│   └── prompt-summarize-tiered.md   # 分层摘要（Tier1 深度 + Tier2 速览）
 ```
 
 ## 最佳实践

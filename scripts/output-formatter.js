@@ -369,6 +369,7 @@ const WEBHOOK_TEMPLATE = {
 
 const DEFAULT_WHATSAPP_MAX_LENGTH = 4096;
 const DEFAULT_WECOM_SAFE_MAX_LENGTH = 1800;
+const CATEGORY_KEYS = ['编程', 'AI', '系统', '硬件', '安全', '创业', '综合'];
 
 /**
  * 简单的模板引擎
@@ -504,10 +505,263 @@ function splitMessage(text, maxLength) {
   });
 }
 
+function decodeHtmlEntities(text) {
+  if (!text) return '';
+  return String(text)
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => {
+      const code = parseInt(hex, 16);
+      return Number.isFinite(code) ? String.fromCodePoint(code) : '';
+    })
+    .replace(/&#(\d+);/g, (_, dec) => {
+      const code = parseInt(dec, 10);
+      return Number.isFinite(code) ? String.fromCodePoint(code) : '';
+    });
+}
+
+function cleanText(text, maxLen = null) {
+  const cleaned = decodeHtmlEntities(String(text || ''))
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!Number.isInteger(maxLen) || maxLen <= 0 || cleaned.length <= maxLen) return cleaned;
+  return `${cleaned.slice(0, maxLen)}...`;
+}
+
+function ensureCategory(value) {
+  return CATEGORY_KEYS.includes(value) ? value : '综合';
+}
+
+function flattenByCategory(byCategory) {
+  if (!byCategory || typeof byCategory !== 'object' || Array.isArray(byCategory)) return [];
+  const rows = [];
+  Object.entries(byCategory).forEach(([category, articles]) => {
+    if (!Array.isArray(articles)) return;
+    articles.forEach((item, index) => {
+      rows.push({
+        rank: Number.isFinite(Number(item.rank)) ? Number(item.rank) : index + 1,
+        title: cleanText(item.title || 'Untitled', 200),
+        link: String(item.link || '').trim(),
+        source: cleanText(item.source || 'unknown', 80),
+        category: ensureCategory(category),
+        oneLiner: cleanText(item.oneLiner || item.summary || '', 140)
+      });
+    });
+  });
+  return rows;
+}
+
+function groupTier2ByCategory(tier2) {
+  const grouped = {};
+  tier2.forEach((item) => {
+    const category = ensureCategory(item.category);
+    if (!grouped[category]) grouped[category] = [];
+    grouped[category].push({
+      title: cleanText(item.title || 'Untitled', 200),
+      link: String(item.link || '').trim(),
+      source: cleanText(item.source || 'unknown', 80),
+      oneLiner: cleanText(item.oneLiner || item.summary || '', 140)
+    });
+  });
+  return grouped;
+}
+
+function computeSummary(tier1, tier2) {
+  const categories = {};
+  CATEGORY_KEYS.forEach((key) => { categories[key] = 0; });
+  [...tier1, ...tier2].forEach((item) => {
+    const key = ensureCategory(item.category);
+    categories[key] += 1;
+  });
+  return {
+    totalArticles: tier1.length + tier2.length,
+    categories
+  };
+}
+
+function summarizeQualityGates(rawQualityGates) {
+  const qualityGates = rawQualityGates && typeof rawQualityGates === 'object' ? rawQualityGates : {};
+  const warnings = Array.isArray(qualityGates.warnings)
+    ? qualityGates.warnings.map(item => cleanText(item, 120)).filter(Boolean)
+    : [];
+
+  const counts = {};
+  warnings.forEach((warning) => {
+    const match = warning.match(/tier\d+\[\d+\]\s+(.+)/i);
+    const kind = (match ? match[1] : warning).trim() || 'unknown';
+    counts[kind] = (counts[kind] || 0) + 1;
+  });
+
+  const breakdown = Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([kind, count]) => ({ kind, count }));
+
+  const topText = breakdown.slice(0, 3).map(item => `${item.kind} x${item.count}`).join(', ');
+  const text = warnings.length > 0
+    ? `自动修复 ${warnings.length} 项（${topText}）`
+    : '未触发自动修复。';
+
+  return {
+    applied: Boolean(qualityGates.applied),
+    warningCount: warnings.length,
+    breakdown,
+    text
+  };
+}
+
+function normalizeSummaryData(input) {
+  const base = input && typeof input === 'object' ? input : {};
+  let tier1 = Array.isArray(base.tier1) ? base.tier1 : [];
+  let tier2 = Array.isArray(base.tier2) ? base.tier2 : [];
+  let highlights = Array.isArray(base.highlights) ? base.highlights : [];
+  let byCategory = base.byCategory && typeof base.byCategory === 'object' && !Array.isArray(base.byCategory)
+    ? base.byCategory
+    : {};
+
+  if (tier1.length === 0 && highlights.length > 0) {
+    tier1 = highlights.map((h, idx) => ({
+      rank: Number.isFinite(Number(h.rank)) ? Number(h.rank) : idx + 1,
+      title: cleanText(h.title || 'Untitled', 200),
+      link: String(h.link || '').trim(),
+      source: cleanText(h.source || 'unknown', 80),
+      category: ensureCategory(h.category),
+      summary: cleanText(h.summary || h.reason || '', 260),
+      keyPoints: Array.isArray(h.keyPoints) ? h.keyPoints.slice(0, 3).map(v => cleanText(v, 80)) : [],
+      action: cleanText(h.action || '', 120),
+      risk: cleanText(h.risk || '', 120)
+    }));
+  }
+
+  if (tier2.length === 0) {
+    tier2 = flattenByCategory(byCategory);
+  }
+
+  tier1 = tier1.map((h, idx) => ({
+    rank: Number.isFinite(Number(h.rank)) ? Number(h.rank) : idx + 1,
+    title: cleanText(h.title || 'Untitled', 200),
+    link: String(h.link || '').trim(),
+    source: cleanText(h.source || 'unknown', 80),
+    category: ensureCategory(h.category),
+    summary: cleanText(h.summary || h.reason || '', 360),
+    keyPoints: Array.isArray(h.keyPoints) ? h.keyPoints.slice(0, 3).map(v => cleanText(v, 80)).filter(Boolean) : [],
+    action: cleanText(h.action || '', 120),
+    risk: cleanText(h.risk || '', 120)
+  }));
+
+  tier2 = tier2.map((h, idx) => ({
+    rank: Number.isFinite(Number(h.rank)) ? Number(h.rank) : idx + 1,
+    title: cleanText(h.title || 'Untitled', 200),
+    link: String(h.link || '').trim(),
+    source: cleanText(h.source || 'unknown', 80),
+    category: ensureCategory(h.category),
+    oneLiner: cleanText(h.oneLiner || h.summary || '', 140)
+  }));
+
+  if (highlights.length === 0 && tier1.length > 0) {
+    highlights = tier1.map((h) => ({
+      rank: h.rank,
+      title: h.title,
+      link: h.link,
+      source: h.source,
+      category: h.category,
+      reason: cleanText(h.summary || h.action || h.risk || '建议优先阅读该文。', 90),
+      summary: h.summary,
+      keyPoints: h.keyPoints,
+      action: h.action,
+      risk: h.risk
+    }));
+  } else {
+    const tier1Lookup = new Map(tier1.map(item => [item.link || item.title, item]));
+    highlights = highlights.map((h, idx) => {
+      const key = String(h.link || h.title || '');
+      const hit = tier1Lookup.get(key);
+      return {
+        rank: Number.isFinite(Number(h.rank)) ? Number(h.rank) : idx + 1,
+        title: cleanText(h.title || hit?.title || 'Untitled', 200),
+        link: String(h.link || hit?.link || '').trim(),
+        source: cleanText(h.source || hit?.source || 'unknown', 80),
+        category: ensureCategory(h.category || hit?.category),
+        reason: cleanText(h.reason || hit?.summary || '建议优先阅读该文。', 90),
+        summary: cleanText(h.summary || hit?.summary || '', 360),
+        keyPoints: Array.isArray(h.keyPoints) ? h.keyPoints.slice(0, 3).map(v => cleanText(v, 80)).filter(Boolean) : (hit?.keyPoints || []),
+        action: cleanText(h.action || hit?.action || '', 120),
+        risk: cleanText(h.risk || hit?.risk || '', 120)
+      };
+    });
+  }
+
+  if (Object.keys(byCategory).length === 0 && tier2.length > 0) {
+    byCategory = groupTier2ByCategory(tier2);
+  } else {
+    byCategory = groupTier2ByCategory(flattenByCategory(byCategory));
+  }
+
+  const summary = base.summary && typeof base.summary === 'object'
+    ? {
+      totalArticles: Number.isFinite(Number(base.summary.totalArticles))
+        ? Number(base.summary.totalArticles)
+        : tier1.length + tier2.length,
+      categories: CATEGORY_KEYS.reduce((acc, key) => {
+        const value = base.summary?.categories?.[key];
+        acc[key] = Number.isFinite(Number(value)) ? Number(value) : 0;
+        return acc;
+      }, {})
+    }
+    : computeSummary(tier1, tier2);
+
+  if (!summary.totalArticles) {
+    const computed = computeSummary(tier1, tier2);
+    summary.totalArticles = computed.totalArticles;
+    summary.categories = computed.categories;
+  }
+
+  const qualitySummary = summarizeQualityGates(base.metadata?.qualityGates);
+  const mergedQualityGates = {
+    ...(base.metadata?.qualityGates && typeof base.metadata.qualityGates === 'object'
+      ? base.metadata.qualityGates
+      : {}),
+    summary: qualitySummary
+  };
+
+  return {
+    ...base,
+    date: cleanText(base.date || new Date().toISOString().slice(0, 10), 20),
+    dailyAdvice: cleanText(base.dailyAdvice || '先读 Tier1 深度摘要，再按 Tier2 速览做取舍。', 120),
+    metadata: base.metadata && typeof base.metadata === 'object'
+      ? {
+        ...base.metadata,
+        generatedAt: base.metadata.generatedAt || new Date().toISOString(),
+        qualityGates: mergedQualityGates
+      }
+      : {
+        generatedAt: new Date().toISOString(),
+        qualityGates: mergedQualityGates
+      },
+    tier1,
+    tier2,
+    highlights,
+    byCategory,
+    summary,
+    otherTopArticles: Array.isArray(base.otherTopArticles) ? base.otherTopArticles : []
+  };
+}
+
+function getQualityGateText(data) {
+  return cleanText(data?.metadata?.qualityGates?.summary?.text || '', 220);
+}
+
 /**
  * 格式化飞书卡片
  */
-function formatFeishuCard(data) {
+function formatFeishuCard(rawData) {
+  const data = normalizeSummaryData(rawData);
+  const qualityText = getQualityGateText(data);
   const highlights = Array.isArray(data.highlights) ? data.highlights : [];
   const byCategory = data.byCategory && typeof data.byCategory === 'object' ? data.byCategory : {};
   const otherTopArticles = Array.isArray(data.otherTopArticles) ? data.otherTopArticles : [];
@@ -534,6 +788,12 @@ function formatFeishuCard(data) {
     tag: "div",
     text: { tag: "lark_md", content: `**💡 今日建议**\n${data.dailyAdvice}` }
   });
+  if (qualityText) {
+    elements.push({
+      tag: "div",
+      text: { tag: "lark_md", content: `**🧪 质量闸门**\n${qualityText}` }
+    });
+  }
   elements.push({ tag: "hr" });
 
   // 深度推荐
@@ -543,11 +803,14 @@ function formatFeishuCard(data) {
   });
 
   highlights.forEach(h => {
+    const summaryLine = h.summary ? `\n📝 ${h.summary}` : '';
+    const actionLine = h.action ? `\n✅ ${h.action}` : '';
+    const riskLine = h.risk ? `\n⚠️ ${h.risk}` : '';
     elements.push({
       tag: "div",
       text: {
         tag: "lark_md",
-        content: `**#${h.rank}** [${h.title}](${h.link})\n📰 ${h.source} · ${h.category}\n💡 ${h.reason}`
+        content: `**#${h.rank}** [${h.title}](${h.link})\n📰 ${h.source} · ${h.category}\n💡 ${h.reason}${summaryLine}${actionLine}${riskLine}`
       }
     });
     elements.push({ tag: "hr" });
@@ -615,7 +878,9 @@ function formatFeishuCard(data) {
 /**
  * 格式化钉钉消息
  */
-function formatDingtalk(data) {
+function formatDingtalk(rawData) {
+  const data = normalizeSummaryData(rawData);
+  const qualityText = getQualityGateText(data);
   const highlights = Array.isArray(data.highlights) ? data.highlights : [];
   const byCategory = data.byCategory && typeof data.byCategory === 'object' ? data.byCategory : {};
   const otherTopArticles = Array.isArray(data.otherTopArticles) ? data.otherTopArticles : [];
@@ -629,6 +894,9 @@ function formatDingtalk(data) {
 
   // 今日建议
   markdown += `## 💡 今日建议\n\n${data.dailyAdvice}\n\n---\n\n`;
+  if (qualityText) {
+    markdown += `> **🧪 质量闸门**\n> ${qualityText}\n\n---\n\n`;
+  }
 
   // 深度推荐
   markdown += `## ⭐ 深度推荐\n\n`;
@@ -636,6 +904,13 @@ function formatDingtalk(data) {
     markdown += `**${h.rank}.** [${h.title}](${h.link})\n`;
     markdown += `📰 ${h.source} · ${h.category}\n`;
     markdown += `💡 ${h.reason}\n\n`;
+    if (h.summary) markdown += `> 摘要: ${h.summary}\n`;
+    if (Array.isArray(h.keyPoints) && h.keyPoints.length > 0) {
+      h.keyPoints.slice(0, 3).forEach(k => { markdown += `> - ${k}\n`; });
+    }
+    if (h.action) markdown += `> ✅ ${h.action}\n`;
+    if (h.risk) markdown += `> ⚠️ ${h.risk}\n`;
+    markdown += '\n';
   });
   markdown += `---\n\n`;
 
@@ -672,16 +947,25 @@ function formatDingtalk(data) {
 /**
  * 格式化企业微信消息
  */
-function formatWecom(data) {
+function formatWecom(rawData) {
+  const data = normalizeSummaryData(rawData);
+  const qualityText = getQualityGateText(data);
   const highlights = Array.isArray(data.highlights) ? data.highlights : [];
   const byCategory = data.byCategory && typeof data.byCategory === 'object' ? data.byCategory : {};
   const otherTopArticles = Array.isArray(data.otherTopArticles) ? data.otherTopArticles : [];
   let text = `📰 每日科技阅读 (${data.date})\n\n`;
   text += `💡 ${data.dailyAdvice}\n\n`;
+  if (qualityText) {
+    text += `🧪 质量闸门: ${qualityText}\n\n`;
+  }
   text += `⭐ 深度推荐:\n`;
 
   highlights.forEach(h => {
-    text += `${h.rank}. ${h.title}\n${h.link}\n\n`;
+    text += `${h.rank}. ${h.title}\n${h.link}\n`;
+    if (h.summary) text += `摘要: ${h.summary}\n`;
+    if (h.action) text += `行动: ${h.action}\n`;
+    if (h.risk) text += `风险: ${h.risk}\n`;
+    text += '\n';
   });
 
   text += `📊 分类速览:\n`;
@@ -719,13 +1003,18 @@ function formatWecom(data) {
 /**
  * 格式化 WhatsApp 消息
  */
-function formatWhatsApp(data) {
+function formatWhatsApp(rawData) {
+  const data = normalizeSummaryData(rawData);
+  const qualityText = getQualityGateText(data);
   const highlights = Array.isArray(data.highlights) ? data.highlights : [];
   const byCategory = data.byCategory && typeof data.byCategory === 'object' ? data.byCategory : {};
   const otherTopArticles = Array.isArray(data.otherTopArticles) ? data.otherTopArticles : [];
 
   let text = `*📰 每日科技阅读 (${data.date})*\n\n`;
   text += `*💡 今日建议*\n${data.dailyAdvice}\n\n`;
+  if (qualityText) {
+    text += `*🧪 质量闸门*\n${qualityText}\n\n`;
+  }
   text += `*⭐ 深度推荐*\n`;
 
   highlights.forEach(h => {
@@ -733,6 +1022,9 @@ function formatWhatsApp(data) {
     text += `${h.link}\n`;
     text += `_📰 ${h.source} · ${h.category}_\n`;
     text += `\`${h.reason}\`\n\n`;
+    if (h.summary) text += `摘要: ${h.summary}\n`;
+    if (h.action) text += `行动: ${h.action}\n`;
+    if (h.risk) text += `风险: ${h.risk}\n\n`;
   });
 
   text += `*📊 分类速览*\n`;
@@ -772,7 +1064,9 @@ function formatWhatsApp(data) {
 /**
  * 格式化邮件 HTML
  */
-function formatEmailHtml(data) {
+function formatEmailHtml(rawData) {
+  const data = normalizeSummaryData(rawData);
+  const qualityText = getQualityGateText(data);
   const highlights = Array.isArray(data.highlights) ? data.highlights : [];
   const byCategory = data.byCategory && typeof data.byCategory === 'object' ? data.byCategory : {};
   const otherTopArticles = Array.isArray(data.otherTopArticles) ? data.otherTopArticles : [];
@@ -798,6 +1092,11 @@ function formatEmailHtml(data) {
     html = html.replace(/\{\{marketTrend\}\}/, '');
   }
 
+  if (qualityText) {
+    const qualityHtml = `<div class="stats"><strong>🧪 质量闸门</strong><br>${qualityText}</div>`;
+    html = html.replace(/(<div class="advice">[\s\S]*?<\/div>)/, `$1${qualityHtml}`);
+  }
+
   // 替换 summary
   html = html.replace(/\{\{summary\.totalArticles\}\}/g, data.summary.totalArticles);
   html = html.replace(/\{\{summary\.categories\.编程\}\}/g, data.summary.categories?.编程 || 0);
@@ -816,6 +1115,13 @@ function formatEmailHtml(data) {
     // 商业风格的额外字段
     const impactHtml = h.impact ? `<div class="impact">📈 影响: ${h.impact}</div>` : '';
     
+    const deepSummaryHtml = h.summary ? `<div class="oneliner">📝 ${h.summary}</div>` : '';
+    const keyPointsHtml = Array.isArray(h.keyPoints) && h.keyPoints.length > 0
+      ? `<ul class="oneliner">${h.keyPoints.slice(0, 3).map(item => `<li>${item}</li>`).join('')}</ul>`
+      : '';
+    const actionHtml = h.action ? `<div class="oneliner">✅ ${h.action}</div>` : '';
+    const riskHtml = h.risk ? `<div class="oneliner">⚠️ ${h.risk}</div>` : '';
+
     return `
     <div class="highlight">
       <div class="highlight-title">
@@ -823,6 +1129,10 @@ function formatEmailHtml(data) {
       </div>
       <div class="source">📰 ${h.source} · ${h.category}</div>
       <div class="reason">💡 ${h.reason}</div>
+      ${deepSummaryHtml}
+      ${keyPointsHtml}
+      ${actionHtml}
+      ${riskHtml}
       ${audienceHtml}
       ${readTimeHtml}
       ${impactHtml}
@@ -877,7 +1187,9 @@ function formatEmailHtml(data) {
 /**
  * 格式化邮件纯文本
  */
-function formatEmailText(data) {
+function formatEmailText(rawData) {
+  const data = normalizeSummaryData(rawData);
+  const qualityText = getQualityGateText(data);
   const highlights = Array.isArray(data.highlights) ? data.highlights : [];
   const byCategory = data.byCategory && typeof data.byCategory === 'object' ? data.byCategory : {};
   const otherTopArticles = Array.isArray(data.otherTopArticles) ? data.otherTopArticles : [];
@@ -890,9 +1202,15 @@ function formatEmailText(data) {
   });
 
   // 替换 highlights
-  const highlightsText = highlights.map(h =>
-    `#${h.rank}. ${h.title}\n   链接: ${h.link}\n   来源: ${h.source} · ${h.category}\n   推荐: ${h.reason}\n`
-  ).join('\n');
+  const highlightsText = highlights.map(h => {
+    const keyPointsText = Array.isArray(h.keyPoints) && h.keyPoints.length > 0
+      ? `   要点:\n${h.keyPoints.slice(0, 3).map(k => `   - ${k}`).join('\n')}\n`
+      : '';
+    const summaryText = h.summary ? `   摘要: ${h.summary}\n` : '';
+    const actionText = h.action ? `   行动: ${h.action}\n` : '';
+    const riskText = h.risk ? `   风险: ${h.risk}\n` : '';
+    return `#${h.rank}. ${h.title}\n   链接: ${h.link}\n   来源: ${h.source} · ${h.category}\n   推荐: ${h.reason}\n${summaryText}${keyPointsText}${actionText}${riskText}`;
+  }).join('\n');
   text = text.replace(/\{\{#each highlights\}\}[\s\S]*?\{\{\/each\}\}/, highlightsText);
 
   // 替换 byCategory
@@ -904,6 +1222,13 @@ function formatEmailText(data) {
     return `${category} (${articles.length}篇)\n\n${articlesText}`;
   }).join('\n');
   text = text.replace(/\{\{#each byCategory\}\}[\s\S]*?\{\{\/each\}\}/, categoriesText);
+
+  if (qualityText) {
+    text = text.replace(
+      /━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n⭐ 深度推荐/,
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n🧪 质量闸门\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n${qualityText}\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n⭐ 深度推荐`
+    );
+  }
 
   const otherTopText = otherTopArticles.length > 0
     ? `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📌 次级推荐 (${otherTopArticles.length}篇)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n${otherTopArticles.slice(0, 10).map((a, idx) => `${idx + 1}. ${a.title}\n   ${a.link}\n   ${a.source}${a.score !== undefined ? ` · Score: ${a.score}` : ''}\n`).join('\n')}\n`
@@ -930,39 +1255,40 @@ async function main({ params }) {
     return { error: 'Missing summaryData' };
   }
 
+  const normalizedSummary = normalizeSummaryData(summaryData);
   let result;
 
   switch (channel) {
     case 'email':
       result = {
-        html: formatEmailHtml(summaryData),
-        text: formatEmailText(summaryData),
-        subject: `📰 每日科技阅读 (${summaryData.date})`
+        html: formatEmailHtml(normalizedSummary),
+        text: formatEmailText(normalizedSummary),
+        subject: `📰 每日科技阅读 (${normalizedSummary.date})`
       };
       break;
 
     case 'feishu':
-      result = formatFeishuCard(summaryData);
+      result = formatFeishuCard(normalizedSummary);
       break;
 
     case 'dingtalk':
-      result = formatDingtalk(summaryData);
+      result = formatDingtalk(normalizedSummary);
       break;
 
     case 'wecom':
     case 'wechat-work':
-      result = formatWecom(summaryData);
+      result = formatWecom(normalizedSummary);
       break;
 
     case 'whatsapp':
-      result = formatWhatsApp(summaryData);
+      result = formatWhatsApp(normalizedSummary);
       break;
 
     case 'webhook':
       result = {
         ...WEBHOOK_TEMPLATE,
-        timestamp: summaryData.metadata.generatedAt,
-        data: summaryData
+        timestamp: normalizedSummary.metadata.generatedAt,
+        data: normalizedSummary
       };
       break;
 
@@ -978,6 +1304,7 @@ async function main({ params }) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     main,
+    normalizeSummaryData,
     formatEmailHtml,
     formatEmailText,
     formatFeishuCard,
