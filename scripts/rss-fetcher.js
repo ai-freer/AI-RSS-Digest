@@ -662,6 +662,7 @@ function prepareCandidates(articles, timeWindowHours = CONFIG.TIME_WINDOW_HOURS)
 
     candidates.push({
       ...article,
+      hasValidPubDate: Boolean(pubDate),
       pubDate: pubDate ? pubDate.toISOString() : new Date().toISOString()
     });
   }
@@ -681,23 +682,87 @@ function scoreAndSort(articles) {
     const pubTime = new Date(article.pubDate).getTime();
     const hoursAgo = (now - pubTime) / (1000 * 60 * 60);
 
-    // 时效性分数 (24h 内最高)
-    const freshnessScore = Math.max(0, 1 - hoursAgo / 48);
+    // 时效性分数 (24h 内最高)，无有效发布日期时降权
+    let freshnessScore = Math.max(0, 1 - hoursAgo / 48);
+    if (!article.hasValidPubDate) {
+      freshnessScore *= 0.35;
+    }
 
-    // 来源权重
-    const sourceScore = article.weight || 1.0;
+    // 来源权重（限制上界，避免单因子过强）
+    const sourceScore = Math.min(article.weight || 1.0, 1.15);
 
     // 内容质量
     const contentScore = Math.min(article.content.length / 2000, 1);
+    const contentPresenceScore = article.content.length >= 120 ? 1 : (article.content.length >= 40 ? 0.5 : 0.1);
 
-    // 综合分数
-    const totalScore = freshnessScore * 0.4 + sourceScore * 0.4 + contentScore * 0.2;
+    // 综合分数：时效 + 来源 + 内容长度 + 内容完整性
+    const totalScore =
+      freshnessScore * 0.35 +
+      sourceScore * 0.25 +
+      contentScore * 0.25 +
+      contentPresenceScore * 0.15;
 
     return {
       ...article,
       score: totalScore
     };
   }).sort((a, b) => b.score - a.score);
+}
+
+/**
+ * 选取分层榜单：默认限制单源挤占
+ */
+function selectRankedArticles(sortedArticles, topN, otherTopN, maxPerSource = 3, allowSourceOverflow = false) {
+  const target = Math.max(0, topN) + Math.max(0, otherTopN);
+  if (target === 0) return { selected: [], quotaSkipped: 0 };
+
+  const sourceCount = new Map();
+  const selected = [];
+  let quotaSkipped = 0;
+
+  for (const article of sortedArticles) {
+    if (selected.length >= target) break;
+    const source = article.source || 'unknown';
+    const current = sourceCount.get(source) || 0;
+    if (current >= maxPerSource) {
+      quotaSkipped += 1;
+      continue;
+    }
+    sourceCount.set(source, current + 1);
+    selected.push(article);
+  }
+
+  // 如果允许超配额，按 source 轮转补齐，尽量保持多样性
+  if (allowSourceOverflow && selected.length < target) {
+    const seenKeys = new Set(selected.map(a => a.link || `${a.source}:${a.title}`));
+    const buckets = new Map();
+    for (const article of sortedArticles) {
+      const key = article.link || `${article.source}:${article.title}`;
+      if (seenKeys.has(key)) continue;
+      const source = article.source || 'unknown';
+      if (!buckets.has(source)) buckets.set(source, []);
+      buckets.get(source).push(article);
+    }
+
+    const sourceOrder = [...buckets.keys()];
+    let progressed = true;
+    while (selected.length < target && progressed) {
+      progressed = false;
+      for (const source of sourceOrder) {
+        if (selected.length >= target) break;
+        const queue = buckets.get(source);
+        if (!queue || queue.length === 0) continue;
+        const article = queue.shift();
+        const key = article.link || `${article.source}:${article.title}`;
+        if (seenKeys.has(key)) continue;
+        seenKeys.add(key);
+        selected.push(article);
+        progressed = true;
+      }
+    }
+  }
+
+  return { selected, quotaSkipped };
 }
 
 // ==================== 主函数 ====================
@@ -716,6 +781,8 @@ function scoreAndSort(articles) {
  * @param {string} params.languageFilter - 可选：语言筛选 all/zh/global（默认 all）
  * @param {number} params.topN - 可选：主榜 TopN（默认等于 maxArticles）
  * @param {number} params.otherTopN - 可选：候选榜数量（默认 30）
+ * @param {number} params.maxPerSource - 可选：单源最多入榜数（默认 3）
+ * @param {boolean} params.allowSourceOverflow - 可选：是否允许超配额补齐（默认 false）
  * @returns {Object} 输出结果
  */
 async function main({ params }) {
@@ -729,7 +796,9 @@ async function main({ params }) {
     cnTier = 'A',
     languageFilter = 'all',
     topN = null,
-    otherTopN = 30
+    otherTopN = 30,
+    maxPerSource = 3,
+    allowSourceOverflow = false
   } = params || {};
 
   const normalizedLanguageFilter = normalizeLanguageFilter(languageFilter);
@@ -775,10 +844,21 @@ async function main({ params }) {
   const secondaryTopN = Number.isFinite(Number(otherTopN)) && Number(otherTopN) >= 0
     ? Number(otherTopN)
     : 30;
+  const sourceCap = Number.isFinite(Number(maxPerSource)) && Number(maxPerSource) > 0
+    ? Number(maxPerSource)
+    : 3;
+  const allowOverflow = Boolean(allowSourceOverflow);
 
-  // 分层输出：主榜 TopN + 候选榜 OtherTopN
-  const topArticles = articles.slice(0, primaryTopN);
-  const otherTopArticles = articles.slice(primaryTopN, primaryTopN + secondaryTopN);
+  // 分层输出：主榜 TopN + 候选榜 OtherTopN，并限制单源挤占
+  const { selected: rankedArticles, quotaSkipped } = selectRankedArticles(
+    articles,
+    primaryTopN,
+    secondaryTopN,
+    sourceCap,
+    allowOverflow
+  );
+  const topArticles = rankedArticles.slice(0, primaryTopN);
+  const otherTopArticles = rankedArticles.slice(primaryTopN, primaryTopN + secondaryTopN);
 
   // 格式化输出
   const formatArticle = (a) => ({
@@ -813,7 +893,11 @@ async function main({ params }) {
         languageFilter: normalizedLanguageFilter,
         totalArticles: rawArticles.length,
         candidateArticles: articles.length,
-        filteredArticles: formatted.length
+        filteredArticles: formatted.length,
+        rankedArticles: rankedArticles.length,
+        maxPerSource: sourceCap,
+        quotaSkipped,
+        allowSourceOverflow: allowOverflow
       },
       errors: errors.length > 0 ? errors : undefined
     }
