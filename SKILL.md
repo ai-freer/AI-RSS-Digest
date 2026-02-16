@@ -1,306 +1,420 @@
 ---
 name: rss-digest
 description: |
-  完整的 RSS 每日摘要系统生成器。当用户需要：
-  - 搭建 RSS 订阅和每日摘要系统
-  - 使用高质量技术 RSS 清单
-  - 运行抓取 -> 摘要 -> 格式化 -> 投递链路
-  - 配置邮件/飞书/钉钉/企业微信/WhatsApp 输出
-  - 快速选择不同角色的 Prompt 模板
+  Agent 驱动的 RSS 每日摘要 Skill。脚本只做抓取、prompt 组装、摘要校验、
+  格式化与投递；摘要生成由 Agent 本身完成。
+version: 2.3.1
+---
 
-  该 Skill 提供可复用脚本、模板与参考指南，支持本地执行与自动化集成。
+# RSS Digest Skill (Agent Mode)
+
+## 一句话说明
+
+这是一个“**Agent 编排 + 本地脚本执行**”的 RSS 摘要流水线：  
+`fetch -> prepare-prompt -> Agent summarize -> validate -> format -> deliver(optional)`。
+
+## 使用原则
+
+1. Agent 不调用外部 LLM API，直接在 Step 3 生成摘要 JSON。
+2. 每一步都要落盘中间文件，便于回放和排错。
+3. 先校验再格式化，避免不合规 JSON 进入渠道层。
+4. 投递前优先 `dryRun` 验证 payload。
+
+## 标准目录约定
+
+建议统一使用 `tmp/` 作为中间产物目录：
+
+- `tmp/fetch.json`
+- `tmp/prompt.txt`
+- `tmp/summary-raw.json`
+- `tmp/summary.json`
+- `tmp/formatted-<channel>.json`
+
+## 标准执行流程（6 步）
+
+### Step 1: 抓取与排序 (`rss-fetcher.js`)
+
+**输入**
+
+- RSS 源配置（内置）
+- 可选参数：时间窗、语言筛选、榜单数量
+
+**命令**
+
+```bash
+node scripts/rss-fetcher.js \
+  --hours 24 \
+  --topN 7 \
+  --otherTopN 20 \
+  --languageFilter all \
+  --outFile tmp/fetch.json
+```
+
+**输出**
+
+- `tmp/fetch.json`
+- 关键字段：`topArticles`、`otherTopArticles`、`stats`
+
+**通过条件**
+
+- `topArticles` 或 `otherTopArticles` 至少一个非空
+
+**失败处理**
+
+- 拉长时间窗：`--hours 48`
+- 放宽筛选：`--languageFilter all`
+- 降低要求：`--topN 5 --otherTopN 10`
+
+---
+
+### Step 2: 组装摘要 Prompt (`prepare-prompt.js`)
+
+**输入**
+
+- `tmp/fetch.json`
+- `templates/prompt-summarize-tiered.md`
+
+**命令**
+
+```bash
+node scripts/prepare-prompt.js \
+  --fetchFile tmp/fetch.json \
+  --template templates/prompt-summarize-tiered.md \
+  --outFile tmp/prompt.txt
+```
+
+**输出**
+
+- `tmp/prompt.txt`
+
+**通过条件**
+
+- 文件存在且非空
+
+**失败处理**
+
+- 检查 `--fetchFile` 路径
+- 检查模板文件是否存在
+
+---
+
+### Step 3: Agent 生成摘要 JSON（核心）
+
+**输入**
+
+- `tmp/prompt.txt`
+
+**Agent 指令（建议原样执行）**
+
+1. 读取 `tmp/prompt.txt`
+2. 严格按照模板要求生成 JSON
+3. 仅输出 JSON 内容并写入 `tmp/summary-raw.json`
+4. 不要输出代码块包裹符号
+
+**推荐结构**
+
+- `date`
+- `tier1[]`（深度摘要：`summary`/`keyPoints`/`action`/`risk`）
+- `tier2[]`（一句话速览：`oneLiner`）
+- 可选：`dailyAdvice`、`metadata`
+
+**通过条件**
+
+- `tmp/summary-raw.json` 能被 JSON 解析
+
+**失败处理**
+
+- 若输出混入说明文字，保留原文件，交给 Step 4 自动提取 JSON
+
+---
+
+### Step 4: 校验与归一化 (`validate-summary.js`)
+
+**输入**
+
+- `tmp/summary-raw.json`
+- `tmp/fetch.json`
+
+**命令**
+
+```bash
+node scripts/validate-summary.js \
+  --input tmp/summary-raw.json \
+  --fetchFile tmp/fetch.json \
+  --outFile tmp/summary.json
+```
+
+**输出**
+
+- `tmp/summary.json`
+- 关键字段：`tier1`、`tier2`、`highlights`、`byCategory`、`metadata.qualityGates`
+
+**通过条件**
+
+- 结构完整，且 `metadata.qualityGates.applied = true`
+
+**失败处理**
+
+- 若报 `Input does not contain valid JSON object`，回到 Step 3 重新生成
+
+---
+
+### Step 5: 格式化输出 (`output-formatter.js`)
+
+**输入**
+
+- `tmp/summary.json`
+- 渠道参数 `--channel`
+
+**命令（示例）**
+
+```bash
+node scripts/output-formatter.js \
+  --input tmp/summary.json \
+  --channel email \
+  --outFile tmp/formatted-email.json
+```
+
+**输出**
+
+- `tmp/formatted-email.json`（或其他渠道格式）
+
+**支持渠道**
+
+- `email`
+- `feishu`
+- `dingtalk`
+- `wecom` / `wechat-work`
+- `whatsapp`
+- `webhook`
+
+**通过条件**
+
+- 输出文件存在，且包含渠道所需核心字段
+
+---
+
+### Step 6: 可选投递 (`delivery.js`)
+
+**输入**
+
+- Step 5 的格式化结果
+- 渠道配置（Webhook / Access Token 等）
+
+**建议策略**
+
+1. 先 `dryRun`
+2. 确认 payload 再真实发送
+3. 失败时按渠道重试策略处理
+
+**渠道配置示例**
+
+```env
+# FEISHU_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/xxxx
+# DINGTALK_ACCESS_TOKEN=xxxx
+# DINGTALK_SECRET=SECxxxx
+# WECOM_KEY=xxxx
+```
+
+## 三个常用剧本
+
+### 剧本 A：日常完整版（Email）
+
+```bash
+node scripts/rss-fetcher.js --hours 24 --topN 7 --otherTopN 20 --outFile tmp/fetch.json
+node scripts/prepare-prompt.js --fetchFile tmp/fetch.json --template templates/prompt-summarize-tiered.md --outFile tmp/prompt.txt
+# Agent: 读取 tmp/prompt.txt，输出 tmp/summary-raw.json
+node scripts/validate-summary.js --input tmp/summary-raw.json --fetchFile tmp/fetch.json --outFile tmp/summary.json
+node scripts/output-formatter.js --input tmp/summary.json --channel email --outFile tmp/formatted-email.json
+```
+
+### 剧本 B：中文优先（WeCom）
+
+```bash
+node scripts/rss-fetcher.js --languageFilter zh --cnTier A --topN 5 --otherTopN 15 --outFile tmp/fetch-zh.json
+node scripts/prepare-prompt.js --fetchFile tmp/fetch-zh.json --template templates/prompt-summarize-tiered.md --outFile tmp/prompt-zh.txt
+# Agent: 输出 tmp/summary-raw-zh.json
+node scripts/validate-summary.js --input tmp/summary-raw-zh.json --fetchFile tmp/fetch-zh.json --outFile tmp/summary-zh.json
+node scripts/output-formatter.js --input tmp/summary-zh.json --channel wecom --outFile tmp/formatted-wecom.json
+```
+
+### 剧本 C：仅检查源健康
+
+```bash
+node scripts/feed-quality-monitor.js
+```
+
+## 模板速查
+
+- `templates/prompt-daily.md`
+- `templates/prompt-quick.md`
+- `templates/prompt-tech-dev.md`
+- `templates/prompt-product.md`
+- `templates/prompt-executive.md`
+- `templates/prompt-summarize-tiered.md`（摘要模板）
+
+注意：项目中没有 `templates/prompt.md`。
+
+## 参考文档
+
+- `reference/GUIDE-technical.md`
+- `reference/GUIDE-delivery.md`
+- `reference/GUIDE-templates.md`
+- `reference/GUIDE-sources.md`
+
+## 故障排查速查
+
+1. `Missing required value: fetchFile`  
+   - 检查参数是否传入 `--fetchFile`
+2. `Input does not contain valid JSON object`  
+   - Step 3 输出格式错误，重新生成 `summary-raw.json`
+3. 渠道拒绝（长度/格式）  
+   - 先降低 `topN/otherTopN`，再调整渠道参数
+4. 源质量下降  
+   - 运行 `scripts/feed-quality-monitor.js` 并更新源策略
+---
+name: rss-digest
+description: |
+  Agent 驱动的 RSS 每日摘要 Skill。脚本只负责抓取、prompt 组装、摘要校验、格式化与投递，
+  不直接调用外部 LLM API。适用于 Cursor 与 Claude Code。
 version: 2.3.0
 ---
 
-# RSS Digest - 精简总览
+# RSS Digest Skill
 
 ## 系统概览
 
-本项目是一个独立 Node.js 管道，核心链路如下：
+这是一个纯 Skill 模式的 RSS 管道：
 
 ```text
-RSS 源 -> rss-fetcher -> ai-summarizer -> output-formatter -> delivery
+Agent -> rss-fetcher -> prepare-prompt -> Agent 生成摘要 JSON -> validate-summary -> output-formatter -> delivery(可选)
 ```
 
-核心模块：
+核心原则：**Agent 本身就是模型，仓库脚本不再负责模型调用。**
 
-| 模块 | 文件 | 作用 |
+## 工作流程（核心）
+
+### Step 1 - 抓取与排序
+
+```bash
+node scripts/rss-fetcher.js --hours 24 --topN 7 --otherTopN 20 --outFile tmp/fetch.json
+```
+
+### Step 2 - 组装摘要 Prompt
+
+```bash
+node scripts/prepare-prompt.js   --fetchFile tmp/fetch.json   --template templates/prompt-summarize-tiered.md   --outFile tmp/prompt.txt
+```
+
+### Step 3 - Agent 生成摘要 JSON
+
+Agent 读取 `tmp/prompt.txt`，输出严格 JSON 到 `tmp/summary-raw.json`。
+
+### Step 4 - 校验与归一化摘要
+
+```bash
+node scripts/validate-summary.js   --input tmp/summary-raw.json   --fetchFile tmp/fetch.json   --outFile tmp/summary.json
+```
+
+### Step 5 - 格式化渠道输出
+
+```bash
+node scripts/output-formatter.js --input tmp/summary.json --channel email --outFile tmp/formatted.json
+```
+
+支持渠道：`email` / `feishu` / `dingtalk` / `wecom` / `whatsapp` / `webhook`。
+
+### Step 6 - 可选投递
+
+使用 `scripts/delivery.js` 对格式化结果做真实发送。联调建议开启 `dryRun`。
+
+## 模板选择
+
+| 类型 | 文件 | 说明 |
 |---|---|---|
-| 源与抓取 | `scripts/rss-fetcher.js` | 并发抓取、筛选、排序分层 |
-| AI 摘要 | `scripts/ai-summarizer.js` | Tier1/Tier2 摘要 + 质量闸门 |
-| 输出格式化 | `scripts/output-formatter.js` | 生成 email/feishu/dingtalk/wecom/whatsapp/webhook |
-| 消息投递 | `scripts/delivery.js` | 各平台发送、重试、签名、分片 |
-| 一次性执行 | `scripts/run-digest-once.js` | 串联抓取 -> 摘要 -> 格式化 |
-| 源健康监控 | `scripts/feed-quality-monitor.js` | 可达性和活跃度检测 |
+| 策展模板 | `templates/prompt-daily.md` | 日常完整阅读 |
+| 策展模板 | `templates/prompt-quick.md` | 快速扫描 |
+| 策展模板 | `templates/prompt-tech-dev.md` | 技术深度 |
+| 策展模板 | `templates/prompt-product.md` | 产品洞察 |
+| 策展模板 | `templates/prompt-executive.md` | 管理决策 |
+| 摘要模板 | `templates/prompt-summarize-tiered.md` | Tier1/Tier2 摘要结构 |
 
-## 快速开始
+注意：项目里没有 `templates/prompt.md`。
 
-### Skill 调用入口
+## 关键参数速查
 
-```text
-/rss-digest setup
-/rss-digest setup --channel email
-/rss-digest setup --channel feishu
-/rss-digest setup --channel dingtalk
-/rss-digest setup --channel wecom
+抓取阶段（`rss-fetcher`）：
+
+- `--hours`
+- `--topN`
+- `--otherTopN`
+- `--maxPerSource`
+- `--allowSourceOverflow`
+- `--includeCN`
+- `--cnTier`
+- `--languageFilter`
+
+摘要准备阶段（`prepare-prompt`）：
+
+- `--fetchFile`
+- `--template`
+- `--outFile`
+
+摘要校验阶段（`validate-summary`）：
+
+- `--input`
+- `--fetchFile`
+- `--outFile`
+
+格式化阶段（`output-formatter`）：
+
+- `--input`
+- `--channel`
+- `--outFile`
+
+## 渠道配置速查
+
+仅在投递时需要（`delivery.js`）：
+
+```env
+# FEISHU_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/xxxx
+# DINGTALK_ACCESS_TOKEN=xxxx
+# DINGTALK_SECRET=SECxxxx
+# WECOM_KEY=xxxx
 ```
 
-### 本地一键执行（推荐）
+## 常用场景
+
+### 1) 日常标准摘要（Email）
 
 ```bash
-# 必填
-export OPENAI_API_KEY="sk-..."
-
-# 可选
-export LLM_MODEL="gpt-4.1-mini"
-# export OPENAI_BASE_URL="https://api.openai.com/v1"
-
-node scripts/run-digest-once.js \
-  --hours 24 \
-  --topN 7 \
-  --otherTopN 20 \
-  --curationTemplate templates/prompt-daily.md \
-  --summaryTemplate templates/prompt-summarize-tiered.md \
-  --channel email
+node scripts/rss-fetcher.js --hours 24 --topN 7 --otherTopN 20 --outFile tmp/fetch.json
+node scripts/prepare-prompt.js --fetchFile tmp/fetch.json --template templates/prompt-summarize-tiered.md --outFile tmp/prompt.txt
+# Agent: 输出 tmp/summary-raw.json
+node scripts/validate-summary.js --input tmp/summary-raw.json --fetchFile tmp/fetch.json --outFile tmp/summary.json
+node scripts/output-formatter.js --input tmp/summary.json --channel email --outFile tmp/formatted-email.json
 ```
 
-输出文件：
-
-- `tmp/digest-<timestamp>-fetch.json`
-- `tmp/digest-<timestamp>-summary.json`
-- `tmp/digest-<timestamp>-formatted-<channel>.json`
-
-可选降级（LLM 失败不中断）：
+### 2) 中文优先扫描（WeCom）
 
 ```bash
-node scripts/run-digest-once.js \
-  --hours 24 \
-  --summaryTemplate templates/prompt-summarize-tiered.md \
-  --allowHeuristicFallback \
-  --channel wecom
-```
-
-## 模板选择（精简版）
-
-### 5 个策展模板
-
-| 模板 | 文件 | 适用场景 | 时长 |
-|---|---|---|---|
-| Daily | `templates/prompt-daily.md` | 日常完整阅读 | 20 分钟 |
-| Quick | `templates/prompt-quick.md` | 快速判断优先级 | 3 分钟 |
-| Tech Dev | `templates/prompt-tech-dev.md` | 技术选型/学习 | 30 分钟 |
-| Product | `templates/prompt-product.md` | 产品创新/竞品观察 | 20 分钟 |
-| Executive | `templates/prompt-executive.md` | 战略与决策 | 15 分钟 |
-
-### 摘要模板（后置步骤）
-
-- `templates/prompt-summarize-tiered.md`
-  - Tier1：深度摘要（summary/keyPoints/action/risk）
-  - Tier2：一两句速览（oneLiner）
-
-注意：
-
-- 不存在 `templates/prompt.md`。
-- 旧文档中若出现 `prompt.md`，统一替换为 `templates/prompt-daily.md`。
-
-## 关键配置参数
-
-抓取参数（`rss-fetcher`）：
-
-- `hours`
-- `topN`
-- `otherTopN`
-- `tagFilter`
-- `includeCN`
-- `cnTier`
-- `languageFilter`
-- `maxPerSource`
-- `allowSourceOverflow`
-
-摘要参数（`ai-summarizer`）：
-
-- `templatePath`（默认 `templates/prompt-summarize-tiered.md`）
-- `model`（默认 `gpt-4.1-mini`）
-- `allowHeuristicFallback`
-
-投递参数（`delivery`）：
-
-- `channel`: `feishu` / `dingtalk` / `wecom` / `whatsapp`
-- `config.dryRun`
-- `config.retries` / `baseDelayMs` / `maxDelayMs`
-
-## 渠道与配置速查
-
-| 渠道 | 格式化输出 | 投递方式 | 必填配置 |
-|---|---|---|---|
-| email | HTML + text | 外部邮件服务 | 由上层系统决定 |
-| feishu | interactive card | `delivery.js` | `webhookUrl` 或 `webhookId` |
-| dingtalk | markdown | `delivery.js` | `accessToken`（`secret` 可选） |
-| wecom | text | `delivery.js` | `key` |
-| whatsapp | text | `delivery.js` | `accessToken` + `phoneNumberId` + `recipientPhone` |
-| webhook | json | 上层系统消费 | 自定义 URL |
-
-### 投递配置片段
-
-飞书：
-
-```json
-{
-  "channel": "feishu",
-  "config": {
-    "webhookUrl": "https://open.feishu.cn/open-apis/bot/v2/hook/xxxx",
-    "dryRun": true
-  }
-}
-```
-
-钉钉：
-
-```json
-{
-  "channel": "dingtalk",
-  "config": {
-    "accessToken": "xxxx",
-    "secret": "SECxxxx"
-  }
-}
-```
-
-企业微信：
-
-```json
-{
-  "channel": "wecom",
-  "config": {
-    "key": "xxxx",
-    "maxBytes": 2048
-  }
-}
-```
-
-WhatsApp：
-
-```json
-{
-  "channel": "whatsapp",
-  "config": {
-    "accessToken": "EAA...",
-    "phoneNumberId": "1234567890",
-    "recipientPhone": "+8613800000000"
-  }
-}
-```
-
-## 常用运行场景
-
-### 1) 日常标准版（推荐）
-
-```bash
-node scripts/run-digest-once.js \
-  --hours 24 \
-  --topN 7 \
-  --otherTopN 20 \
-  --curationTemplate templates/prompt-daily.md \
-  --summaryTemplate templates/prompt-summarize-tiered.md \
-  --channel email
-```
-
-### 2) 早晨快速版（Quick）
-
-```bash
-node scripts/run-digest-once.js \
-  --hours 24 \
-  --topN 3 \
-  --otherTopN 15 \
-  --curationTemplate templates/prompt-quick.md \
-  --summaryTemplate templates/prompt-summarize-tiered.md \
-  --channel feishu
-```
-
-### 3) 中文优先版
-
-```bash
-node scripts/run-digest-once.js \
-  --languageFilter zh \
-  --cnTier A \
-  --channel wecom
+node scripts/rss-fetcher.js --languageFilter zh --cnTier A --topN 5 --otherTopN 15 --outFile tmp/fetch-zh.json
+node scripts/prepare-prompt.js --fetchFile tmp/fetch-zh.json --template templates/prompt-summarize-tiered.md --outFile tmp/prompt-zh.txt
+# Agent: 输出 tmp/summary-zh-raw.json
+node scripts/validate-summary.js --input tmp/summary-zh-raw.json --fetchFile tmp/fetch-zh.json --outFile tmp/summary-zh.json
+node scripts/output-formatter.js --input tmp/summary-zh.json --channel wecom --outFile tmp/formatted-wecom.json
 ```
 
 ## 参考文档索引
 
-详细内容已拆分到 `reference/`：
+- `reference/GUIDE-sources.md`：源清单与筛选
+- `reference/GUIDE-technical.md`：抓取、校验、质量闸门
+- `reference/GUIDE-templates.md`：模板选择
+- `reference/GUIDE-delivery.md`：格式化与投递
 
-- `reference/GUIDE-sources.md`
-  - RSS 源清单、动态分类、标签/语言筛选
-- `reference/GUIDE-technical.md`
-  - 抓取策略、评分算法、质量闸门、健康监控
-- `reference/GUIDE-templates.md`
-  - 模板体系、选择策略、Breaking News、常见错误
-- `reference/GUIDE-delivery.md`
-  - 输出格式、投递配置、自动化流程
+## 故障排查
 
-## 文件清单
-
-```text
-rss-digest/
-├── SKILL.md
-├── RSS_FEEDS.md
-├── RSS_FEEDS_CN.md
-├── resources/
-│   └── hn-popular-blogs-2025.opml
-├── scripts/
-│   ├── rss-fetcher.js
-│   ├── ai-summarizer.js
-│   ├── output-formatter.js
-│   ├── delivery.js
-│   ├── run-digest-once.js
-│   ├── feed-quality-monitor.js
-│   ├── delivery.test.js
-│   └── summary-pipeline.test.js
-├── templates/
-│   ├── README.md
-│   ├── prompt-daily.md
-│   ├── prompt-quick.md
-│   ├── prompt-tech-dev.md
-│   ├── prompt-product.md
-│   ├── prompt-executive.md
-│   └── prompt-summarize-tiered.md
-└── reference/
-    ├── GUIDE-sources.md
-    ├── GUIDE-technical.md
-    ├── GUIDE-templates.md
-    └── GUIDE-delivery.md
-```
-
-## 最佳实践（精简）
-
-成本控制：
-
-1. 默认 `gpt-4.1-mini`，仅在必要时升级模型。
-2. 控制 `topN`/`otherTopN`，避免下游摘要过载。
-3. 默认 24h 时间窗，减少噪音与冗余。
-
-质量保证：
-
-1. 保持多源输入，避免单一来源偏置。
-2. 关注 `metadata.qualityGates` 警告分布。
-3. 用模板 A/B 测试验证不同读者场景效果。
-
-稳定性：
-
-1. 保留默认超时与重试，避免过激参数。
-2. 关键任务开启 `--allowHeuristicFallback`。
-3. 定期运行 `feed-quality-monitor.js` 监控源健康。
-
-## 故障排查速查
-
-1. 提示 `Missing required value: OPENAI_API_KEY`
-   - 设置 `OPENAI_API_KEY` 后重试。
-2. 渠道投递失败
-   - 先设 `dryRun=true` 打印 payload，确认字段后再真实发送。
-3. 消息过长被渠道拒绝
-   - 降低 `topN` / `otherTopN`，或按渠道调整分片参数。
-4. 摘要质量不稳定
-   - 查看 `metadata.qualityGates`，定位是 Tier1 还是 Tier2 被修复。
-5. 某些 RSS 源长期失败
-   - 运行 `scripts/feed-quality-monitor.js`，根据报告更新源配置。
+1. `Missing required value: fetchFile`：检查是否传了 `--fetchFile`
+2. `Input does not contain valid JSON object`：Step 3 输出不是合法 JSON
+3. 输出过长：降低 `topN/otherTopN` 或调整渠道分片
+4. 源连续失败：运行 `scripts/feed-quality-monitor.js` 排查

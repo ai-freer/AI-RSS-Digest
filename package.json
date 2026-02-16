@@ -1,0 +1,13 @@
+{
+  "name": "rss-digest",
+  "version": "2.3.0",
+  "description": "Agent-driven RSS daily digest skill for Cursor and Claude Code",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "test": "node scripts/summary-pipeline.test.js && node scripts/delivery.test.js",
+    "fetch": "node scripts/rss-fetcher.js",
+    "monitor": "node scripts/feed-quality-monitor.js"
+  }
+}

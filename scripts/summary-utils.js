@@ -1,17 +1,12 @@
 /**
- * AI Summarizer for RSS Digest
+ * Summary Utilities for RSS Digest
  *
- * 把 rss-fetcher 的排序结果交给 LLM 生成结构化摘要（summaryData）
- * 主契约：tier1 / tier2；同时桥接 highlights / byCategory 以兼容旧格式化层。
+ * 纯工具模块：负责 prompt 组装、JSON 提取、结构归一化与质量闸门。
+ * 不包含任何外部 LLM 调用逻辑。
  *
- * @version 1.1.0
+ * @version 2.3.0
  */
 
-const fs = require('fs');
-const path = require('path');
-
-const DEFAULT_TEMPLATE = path.join(__dirname, '..', 'templates', 'prompt-summarize-tiered.md');
-const DEFAULT_TIMEOUT = 90000;
 const CATEGORY_KEYS = ['编程', 'AI', '系统', '硬件', '安全', '创业', '综合'];
 const QUALITY_RULES = {
   tier1MinSentences: 3,
@@ -19,12 +14,6 @@ const QUALITY_RULES = {
   tier2MinLen: 15,
   tier2MaxLen: 140
 };
-
-function ensureValue(value, name) {
-  if (value === undefined || value === null || value === '') {
-    throw new Error(`Missing required value: ${name}`);
-  }
-}
 
 function safeText(value, fallback = '') {
   if (value === undefined || value === null) return fallback;
@@ -332,7 +321,7 @@ function computeSummary(tier1, tier2) {
 
 function ensureSummaryShape(data, fetchData = {}) {
   if (!data || typeof data !== 'object') {
-    throw new Error('LLM output is not a JSON object');
+    throw new Error('Summary output is not a JSON object');
   }
 
   const fetchTop = Array.isArray(fetchData?.topArticles) ? fetchData.topArticles : [];
@@ -377,14 +366,13 @@ function ensureSummaryShape(data, fetchData = {}) {
     }
     : computeSummary(tier1, tier2);
 
-  // 如果传入 summary 为空计数，则用实时计数覆盖
   if (summary.totalArticles === 0) {
     const computed = computeSummary(tier1, tier2);
     summary.totalArticles = computed.totalArticles;
     summary.categories = computed.categories;
   }
 
-  const normalized = {
+  return {
     date: safeText(data.date, fetchData?.date || new Date().toISOString().slice(0, 10)),
     summary,
     tier1,
@@ -404,155 +392,18 @@ function ensureSummaryShape(data, fetchData = {}) {
       }
     }
   };
-
-  return normalized;
-}
-
-async function callOpenAICompatible({ apiKey, baseUrl, model, prompt, timeoutMs = DEFAULT_TIMEOUT }) {
-  ensureValue(apiKey, 'OPENAI_API_KEY');
-  ensureValue(model, 'model');
-
-  const endpoint = `${baseUrl.replace(/\/$/, '')}/chat/completions`;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model,
-        temperature: 0.2,
-        response_format: { type: 'json_object' },
-        messages: [
-          {
-            role: 'user',
-            content: prompt
-          }
-        ]
-      })
-    });
-
-    const raw = await response.text();
-    if (!response.ok) {
-      throw new Error(`LLM HTTP ${response.status}: ${raw.slice(0, 500)}`);
-    }
-
-    const payload = JSON.parse(raw);
-    const content = payload?.choices?.[0]?.message?.content;
-    const parsed = extractJson(content);
-    if (!parsed) {
-      throw new Error('LLM returned non-JSON content');
-    }
-    return parsed;
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
-
-function buildHeuristicSummary(fetchData) {
-  const top = Array.isArray(fetchData?.topArticles) ? fetchData.topArticles : [];
-  const other = Array.isArray(fetchData?.otherTopArticles) ? fetchData.otherTopArticles : [];
-
-  const tier1 = top.slice(0, 5).map((a, idx) => normalizeTier1Item({
-    rank: idx + 1,
-    title: safeText(a.title, 'Untitled'),
-    link: safeText(a.link, ''),
-    source: safeText(a.source, 'unknown'),
-    category: inferCategory(a.title, a.content),
-    summary: extractSentences(a.content, 3).join(' '),
-    keyPoints: extractSentences(a.content, 3),
-    action: `若该主题与你职责相关，优先阅读原文第 1-3 段确认细节。`,
-    risk: `RSS 摘要可能缺少上下文，结论需回源核对。`
-  }, idx + 1));
-
-  const tier2Raw = [...top.slice(5), ...other];
-  const tier2 = tier2Raw.map((a, idx) => normalizeTier2Item({
-    rank: idx + 1,
-    title: safeText(a.title, 'Untitled'),
-    link: safeText(a.link, ''),
-    source: safeText(a.source, 'unknown'),
-    category: inferCategory(a.title, a.content),
-    oneLiner: extractShortSummary(a.content, 120)
-  }, idx + 1));
-
-  const result = ensureSummaryShape({
-    date: fetchData?.date || new Date().toISOString().slice(0, 10),
-    tier1,
-    tier2,
-    dailyAdvice: '先看 Tier1 深度摘要，再按 Tier2 速览决定是否回源阅读。'
-  }, fetchData);
-
-  result.metadata = {
-    ...(result.metadata && typeof result.metadata === 'object' ? result.metadata : {}),
-    generatedAt: new Date().toISOString(),
-    model: 'heuristic-fallback',
-    version: '1.1.0',
-    template: 'summarize-tiered'
-  };
-  return result;
-}
-
-async function main({ params }) {
-  const {
-    fetchData,
-    templatePath = DEFAULT_TEMPLATE,
-    model = process.env.LLM_MODEL || 'gpt-4.1-mini',
-    timeoutMs = DEFAULT_TIMEOUT,
-    allowHeuristicFallback = false
-  } = params || {};
-
-  ensureValue(fetchData, 'fetchData');
-  const templateText = fs.readFileSync(templatePath, 'utf8');
-  const promptArticles = buildPromptArticles(fetchData);
-  const prompt = buildPrompt(templateText, promptArticles, fetchData);
-
-  const apiKey = process.env.OPENAI_API_KEY;
-  const baseUrl = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
-
-  try {
-    const summaryData = await callOpenAICompatible({
-      apiKey,
-      baseUrl,
-      model,
-      prompt,
-      timeoutMs
-    });
-    const shaped = ensureSummaryShape(summaryData, fetchData);
-    shaped.metadata = {
-      ...shaped.metadata,
-      generatedAt: shaped.metadata.generatedAt || new Date().toISOString(),
-      model,
-      version: shaped.metadata.version || '1.1.0',
-      template: shaped.metadata.template || 'summarize-tiered'
-    };
-    return { result: shaped };
-  } catch (error) {
-    if (!allowHeuristicFallback) {
-      throw error;
-    }
-    const fallback = buildHeuristicSummary(fetchData);
-    fallback.metadata.fallbackReason = String(error.message || error);
-    return { result: fallback };
-  }
 }
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    main,
     buildPromptArticles,
     buildPrompt,
+    extractJson,
     ensureSummaryShape,
-    cleanText,
+    enforceTier1Quality,
+    enforceTier2Quality,
     inferCategory,
+    cleanText,
     QUALITY_RULES
   };
-}
-
-if (typeof exports !== 'undefined') {
-  exports.main = main;
 }

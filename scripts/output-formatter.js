@@ -8,6 +8,9 @@
  * @version 2.2.0
  */
 
+const fs = require('fs');
+const path = require('path');
+
 // ==================== 邮件 HTML 模板 ====================
 
 const EMAIL_HTML_TEMPLATE = `<!DOCTYPE html>
@@ -1413,4 +1416,53 @@ if (typeof module !== 'undefined' && module.exports) {
 
 if (typeof exports !== 'undefined') {
   exports.main = main;
+}
+
+function parseCliArgs(argv) {
+  const args = {};
+  for (let i = 2; i < argv.length; i += 1) {
+    const token = argv[i];
+    if (!token.startsWith('--')) continue;
+    const key = token.slice(2);
+    const next = argv[i + 1];
+    if (!next || next.startsWith('--')) {
+      args[key] = true;
+      continue;
+    }
+    args[key] = next;
+    i += 1;
+  }
+  return args;
+}
+
+if (require.main === module) {
+  (async () => {
+    const args = parseCliArgs(process.argv);
+    if (!args.input) {
+      throw new Error('Missing required value: input');
+    }
+    const inputFile = path.resolve(args.input);
+    const channel = args.channel || 'email';
+    const outFile = args.outFile ? path.resolve(args.outFile) : null;
+    const summaryData = JSON.parse(fs.readFileSync(inputFile, 'utf8'));
+
+    const { result } = await main({
+      params: {
+        summaryData,
+        channel
+      }
+    });
+
+    const outputText = `${JSON.stringify(result, null, 2)}\n`;
+    if (outFile) {
+      fs.mkdirSync(path.dirname(outFile), { recursive: true });
+      fs.writeFileSync(outFile, outputText);
+      process.stdout.write(`${outFile}\n`);
+      return;
+    }
+    process.stdout.write(outputText);
+  })().catch((error) => {
+    process.stderr.write(`${String(error.message || error)}\n`);
+    process.exit(1);
+  });
 }

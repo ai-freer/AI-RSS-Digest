@@ -10,6 +10,8 @@
  */
 
 // ==================== 配置 ====================
+const fs = require('fs');
+const path = require('path');
 
 const CONFIG = {
   // 并发控制
@@ -914,4 +916,71 @@ if (typeof module !== 'undefined' && module.exports) {
 // 兼容运行环境入口
 if (typeof exports !== 'undefined') {
   exports.main = main;
+}
+
+function parseCliArgs(argv) {
+  const args = {};
+  for (let i = 2; i < argv.length; i += 1) {
+    const token = argv[i];
+    if (!token.startsWith('--')) continue;
+    const key = token.slice(2);
+    const next = argv[i + 1];
+    if (!next || next.startsWith('--')) {
+      args[key] = true;
+      continue;
+    }
+    args[key] = next;
+    i += 1;
+  }
+  return args;
+}
+
+function toNumber(value, fallback) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function toBoolean(value, fallback = false) {
+  if (value === undefined) return fallback;
+  if (typeof value === 'boolean') return value;
+  const lowered = String(value).toLowerCase();
+  if (['1', 'true', 'yes', 'y', 'on'].includes(lowered)) return true;
+  if (['0', 'false', 'no', 'n', 'off'].includes(lowered)) return false;
+  return fallback;
+}
+
+if (require.main === module) {
+  (async () => {
+    const args = parseCliArgs(process.argv);
+    const result = await main({
+      params: {
+        tagFilter: args.tagFilter || null,
+        hours: toNumber(args.hours, CONFIG.TIME_WINDOW_HOURS),
+        maxArticles: toNumber(args.maxArticles, CONFIG.MAX_ARTICLES),
+        healthCheck: toBoolean(args.healthCheck, false),
+        healthTimeout: toNumber(args.healthTimeout, 5000),
+        includeCN: toBoolean(args.includeCN, false),
+        cnTier: args.cnTier || 'A',
+        languageFilter: args.languageFilter || 'all',
+        topN: args.topN !== undefined ? toNumber(args.topN, null) : null,
+        otherTopN: toNumber(args.otherTopN, 30),
+        maxPerSource: toNumber(args.maxPerSource, 3),
+        allowSourceOverflow: toBoolean(args.allowSourceOverflow, false)
+      }
+    });
+
+    const outputText = `${JSON.stringify(result.result, null, 2)}\n`;
+    if (args.outFile) {
+      const outPath = path.resolve(args.outFile);
+      fs.mkdirSync(path.dirname(outPath), { recursive: true });
+      fs.writeFileSync(outPath, outputText);
+      process.stdout.write(`${outPath}\n`);
+      return;
+    }
+    process.stdout.write(outputText);
+  })().catch((error) => {
+    process.stderr.write(`${String(error.message || error)}\n`);
+    process.exit(1);
+  });
 }

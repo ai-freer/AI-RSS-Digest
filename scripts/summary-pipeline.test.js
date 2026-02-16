@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { ensureSummaryShape } = require('./ai-summarizer');
+const { ensureSummaryShape } = require('./summary-utils');
 const { normalizeSummaryData, formatEmailHtml, formatEmailText, formatWecom } = require('./output-formatter');
 
 function run() {

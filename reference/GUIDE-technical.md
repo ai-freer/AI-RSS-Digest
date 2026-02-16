@@ -1,169 +1,132 @@
-# 抓取、摘要与质量闸门技术指南
+# 抓取、校验与质量闸门技术指南
 
 ## 技术范围
 
-本指南覆盖以下模块：
+本指南覆盖：
 
 - `scripts/rss-fetcher.js`
-- `scripts/ai-summarizer.js`
+- `scripts/summary-utils.js`
+- `scripts/prepare-prompt.js`
+- `scripts/validate-summary.js`
 - `scripts/output-formatter.js`
 - `scripts/feed-quality-monitor.js`
 
-## 端到端技术流程
+## 端到端流程
 
 ```text
-RSS 源 -> 抓取与候选准备 -> 评分排序与分层 -> LLM 摘要 -> 质量闸门 -> 格式化输出
+RSS 源 -> 抓取与排序 -> Prompt 组装 -> Agent 生成摘要 JSON -> 结构校验与质量修复 -> 渠道格式化
 ```
+
+说明：Agent 承担摘要生成，脚本层不调用外部 LLM API。
 
 ## 抓取策略（rss-fetcher）
 
 核心配置：
 
 - 并发：`CONCURRENCY = 5`
-- 超时：`TIMEOUT = 10000` ms
-- 重试：`RETRIES = 3`（指数退避）
+- 超时：`TIMEOUT = 10000ms`
+- 重试：`RETRIES = 3`
 - 时间窗口：`TIME_WINDOW_HOURS = 24`
-- 正文长度裁剪：`MAX_CONTENT_LENGTH = 2000`
+- 内容裁剪：`MAX_CONTENT_LENGTH = 2000`
 
 抓取质量控制：
 
-- 解析：DOM 解析优先，正则回退兜底。
-- 内容清洗：移除 HTML 标签和多余空白。
-- 候选准备：先做轻量去重，再交给排序层处理。
+1. DOM 解析优先，正则回退
+2. 文本清洗与轻量去重
+3. 评分排序后再分层输出
 
-轻量去重策略：
+分层输出字段：
 
-1. 优先标准化 URL 去重。
-2. 其次 GUID 去重。
-3. 最后标题+内容指纹去重。
+- `topArticles`
+- `otherTopArticles`
 
-## 排序与分层（rss-fetcher）
+## Prompt 组装（prepare-prompt + summary-utils）
 
-评分维度与权重：
+`prepare-prompt.js` 会：
 
-- 时效性：35%
-- 来源权重：25%
-- 内容长度质量：25%
-- 内容完整性：15%
+1. 读取抓取结果 JSON
+2. 加载摘要模板（默认 `templates/prompt-summarize-tiered.md`）
+3. 调用 `summary-utils.buildPromptArticles()` 与 `summary-utils.buildPrompt()`
+4. 输出最终 Prompt 文本
 
-分层输出：
+常用命令：
 
-- `topArticles`：主榜（默认由 `topN` 控制）。
-- `otherTopArticles`：候选榜（默认由 `otherTopN` 控制）。
+```bash
+node scripts/prepare-prompt.js --fetchFile tmp/fetch.json --template templates/prompt-summarize-tiered.md --outFile tmp/prompt.txt
+```
 
-多样性控制：
+## 摘要校验与归一化（validate-summary）
 
-- `maxPerSource` 默认 3，避免单一源挤占。
-- `allowSourceOverflow` 可在候选不足时放宽配额补齐。
+`validate-summary.js` 会：
 
-## 分层摘要架构（ai-summarizer）
+1. 读取 Agent 生成文件（允许前后夹杂说明文字）
+2. 用 `extractJson()` 提取 JSON 主体
+3. 用 `ensureSummaryShape()` 归一化结构并修复质量
 
-默认模板：
+输出关键字段：
 
-- `templates/prompt-summarize-tiered.md`
+- `tier1` / `tier2`
+- `highlights` / `byCategory`（兼容格式化层）
+- `metadata.qualityGates`
 
-默认模型：
+常用命令：
 
-- `gpt-4.1-mini`（可通过 `LLM_MODEL` 覆盖）
+```bash
+node scripts/validate-summary.js --input tmp/summary-raw.json --fetchFile tmp/fetch.json --outFile tmp/summary.json
+```
 
-输出结构：
+## 质量闸门规则
 
-- Tier1（深度）：`summary`、`keyPoints`、`action`、`risk`
-- Tier2（速览）：`oneLiner`
-- 桥接字段：`highlights`、`byCategory`（兼容格式化层）
-
-## 摘要质量闸门
-
-`scripts/ai-summarizer.js` 会在输出阶段执行规则校验与自动修复：
+当前规则来自 `summary-utils.js`：
 
 - Tier1：
-  - 摘要句数不足时尝试由 key points 重建。
-  - `keyPoints` 不足会补齐到最小条数。
-  - `action`/`risk` 为空时补默认建议。
+  - `summary` 至少 3 句（不足会尝试由 `keyPoints` 重建）
+  - `keyPoints` 至少 3 条（自动补齐）
+  - `action` / `risk` 缺失时补默认文案
 - Tier2：
-  - `oneLiner` 过短时兜底默认文案。
-  - 过长时自动截断。
+  - `oneLiner` 过短时回退默认文案
+  - 过长时自动截断
 
-校验结果会写入：
+告警写入：
 
-- `metadata.qualityGates`
-  - `applied`
-  - `rules`
-  - `warnings`
+- `metadata.qualityGates.warnings`
 
-`scripts/output-formatter.js` 会把 warnings 聚合成可读摘要，并在渠道输出中展示 `🧪 质量闸门`。
+## 输出格式化（output-formatter）
 
-## 无 LLM 时降级策略
+格式化支持：
 
-`scripts/run-digest-once.js` 支持：
+- `email`
+- `feishu`
+- `dingtalk`
+- `wecom` / `wechat-work`
+- `whatsapp`
+- `webhook`
 
-- `--allowHeuristicFallback`
+常用命令：
 
-开启后，当 LLM 调用失败，`ai-summarizer` 使用启发式摘要继续出结果，避免流程中断。
+```bash
+node scripts/output-formatter.js --input tmp/summary.json --channel email --outFile tmp/formatted.json
+```
 
-## Feed 健康监控（feed-quality-monitor）
+## Feed 健康监控
 
-脚本：
+脚本：`scripts/feed-quality-monitor.js`
 
-- `scripts/feed-quality-monitor.js`
+作用：
 
-能力：
+- 批量检测 RSS 可达性与活跃度
+- 输出最新快照与历史记录
 
-- 批量探测 RSS 源健康状态与延迟。
-- 自动分类失败原因（如超时、限流、鉴权、404）。
-- 尝试发现替代 feed URL（主页与常见后缀探测）。
-- 记录最新报告与历史快照。
-
-输出文件默认路径：
+默认输出：
 
 - `tmp/feed-quality-latest.json`
 - `tmp/feed-quality-history.jsonl`
 
-建议定期运行（如每日/每周），只做“观测+建议”，不自动删源。
-
-## 运行参数速查
-
-抓取链路常用参数：
-
-- `--hours`
-- `--topN`
-- `--otherTopN`
-- `--includeCN`
-- `--cnTier`
-- `--languageFilter`
-
-健康检测常用参数：
-
-- `--include-cn`
-- `--cn-tier`
-- `--timeout-ms`
-- `--concurrency`
-- `--low-item-threshold`
-
-## 最佳实践
-
-成本控制：
-
-- 优先使用 `gpt-4.1-mini`。
-- 用 `topN` + `otherTopN` 控制摘要规模。
-- 默认 24 小时时窗，避免过量历史内容。
-
-质量保证：
-
-- 保持源多样性，不追求极限去重。
-- 定期复盘 `metadata.qualityGates` 警告类型。
-- 依据阅读反馈调整 `maxPerSource` 和模板。
-
-稳定性：
-
-- 保持超时与重试配置默认值，避免过激参数。
-- 启用 `--allowHeuristicFallback` 增强鲁棒性。
-- 使用 feed 健康报告提前处理不稳定源。
-
 ## 相关文件
 
 - `scripts/rss-fetcher.js`
-- `scripts/ai-summarizer.js`
+- `scripts/summary-utils.js`
+- `scripts/prepare-prompt.js`
+- `scripts/validate-summary.js`
 - `scripts/output-formatter.js`
 - `scripts/feed-quality-monitor.js`
-- `scripts/run-digest-once.js`
