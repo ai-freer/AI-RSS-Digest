@@ -2,13 +2,15 @@
  * Delivery Module for RSS Digest
  *
  * 把 output-formatter 的结果投递到不同平台
- * 支持：飞书 / 钉钉 / 企业微信 / WhatsApp
+ * 支持：Email / 飞书 / 钉钉 / 企业微信 / WhatsApp
  *
  * @author RSS Digest Skill
- * @version 2.2.0
+ * @version 2.3.0
  */
 
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 
 const DEFAULT_RETRY_OPTIONS = {
   retries: 3,
@@ -167,6 +169,338 @@ function normalizeRetryOptions(config = {}) {
 function ensureValue(value, name) {
   if (value === undefined || value === null || value === '') {
     throw new Error(`Missing required config: ${name}`);
+  }
+}
+
+function parseBoolean(value, fallback = false) {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['1', 'true', 'yes', 'y', 'on'].includes(normalized)) return true;
+    if (['0', 'false', 'no', 'n', 'off'].includes(normalized)) return false;
+  }
+  return fallback;
+}
+
+function normalizeRecipients(to) {
+  if (Array.isArray(to)) {
+    const recipients = to.map(item => String(item || '').trim()).filter(Boolean);
+    return [...new Set(recipients)];
+  }
+
+  if (typeof to === 'string') {
+    const recipients = to
+      .split(',')
+      .map(item => item.trim())
+      .filter(Boolean);
+    return [...new Set(recipients)];
+  }
+
+  return [];
+}
+
+function normalizeEmailConfig(config = {}) {
+  return {
+    mode: (config.mode || '').toLowerCase(),
+    to: normalizeRecipients(config.to),
+    from: config.from,
+    resendApiKey: config.resendApiKey,
+    smtpHost: config.smtpHost,
+    smtpPort: config.smtpPort === undefined ? undefined : Number(config.smtpPort),
+    smtpSecure: parseBoolean(config.smtpSecure, false),
+    smtpUser: config.smtpUser,
+    smtpPass: config.smtpPass
+  };
+}
+
+function detectEmailMode(emailConfig) {
+  if (emailConfig.mode === 'resend' || emailConfig.mode === 'smtp') return emailConfig.mode;
+  if (emailConfig.resendApiKey) return 'resend';
+  if (emailConfig.smtpHost) return 'smtp';
+  return null;
+}
+
+function ensureEmailPayload(formattedData) {
+  if (!formattedData || typeof formattedData !== 'object') {
+    throw new Error('Email payload must be an object');
+  }
+
+  const subject = String(formattedData.subject || '').trim();
+  const html = typeof formattedData.html === 'string' ? formattedData.html : '';
+  const text = typeof formattedData.text === 'string' ? formattedData.text : '';
+
+  ensureValue(subject, 'formattedData.subject');
+  if (!html && !text) {
+    throw new Error('Email payload requires html or text');
+  }
+
+  return { subject, html, text };
+}
+
+function stringifyEnvValue(value) {
+  if (value === undefined || value === null) return '';
+  return String(value).trim();
+}
+
+function parseDotEnvFile(filePath) {
+  if (!fs.existsSync(filePath)) return {};
+  const content = fs.readFileSync(filePath, 'utf8');
+  const lines = content.split(/\r?\n/);
+  const parsed = {};
+
+  lines.forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) return;
+
+    const separatorIndex = trimmed.indexOf('=');
+    if (separatorIndex <= 0) return;
+
+    const key = trimmed.slice(0, separatorIndex).trim();
+    let value = trimmed.slice(separatorIndex + 1).trim();
+
+    if (
+      (value.startsWith('"') && value.endsWith('"'))
+      || (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+
+    parsed[key] = value;
+  });
+
+  return parsed;
+}
+
+function loadEnvFromDefaultFiles() {
+  const cwd = process.cwd();
+  const envFiles = ['.env', '.env.local'];
+  envFiles.forEach((fileName) => {
+    const fullPath = path.join(cwd, fileName);
+    const parsed = parseDotEnvFile(fullPath);
+    Object.entries(parsed).forEach(([key, value]) => {
+      if (!Object.prototype.hasOwnProperty.call(process.env, key)) {
+        process.env[key] = value;
+      }
+    });
+  });
+}
+
+function readJsonFile(filePath) {
+  const content = fs.readFileSync(filePath, 'utf8');
+  return JSON.parse(content);
+}
+
+function parseCliArgs(argv = []) {
+  const args = {};
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index];
+    if (!token.startsWith('--')) continue;
+    const key = token.slice(2);
+    const next = argv[index + 1];
+    if (!next || next.startsWith('--')) {
+      args[key] = true;
+      continue;
+    }
+    args[key] = next;
+    index += 1;
+  }
+  return args;
+}
+
+function buildConfigFromEnv(channel, env = process.env) {
+  const retries = Number.parseInt(env.DELIVERY_RETRIES || '', 10);
+  const baseDelayMs = Number.parseInt(env.DELIVERY_BASE_DELAY_MS || '', 10);
+  const maxDelayMs = Number.parseInt(env.DELIVERY_MAX_DELAY_MS || '', 10);
+
+  const retryConfig = {
+    retries: Number.isInteger(retries) ? retries : undefined,
+    baseDelayMs: Number.isInteger(baseDelayMs) ? baseDelayMs : undefined,
+    maxDelayMs: Number.isInteger(maxDelayMs) ? maxDelayMs : undefined
+  };
+
+  if (channel === 'email') {
+    return {
+      ...retryConfig,
+      mode: stringifyEnvValue(env.EMAIL_MODE).toLowerCase() || undefined,
+      to: stringifyEnvValue(env.EMAIL_TO),
+      from: stringifyEnvValue(env.EMAIL_FROM),
+      resendApiKey: stringifyEnvValue(env.RESEND_API_KEY),
+      smtpHost: stringifyEnvValue(env.SMTP_HOST),
+      smtpPort: stringifyEnvValue(env.SMTP_PORT),
+      smtpSecure: stringifyEnvValue(env.SMTP_SECURE),
+      smtpUser: stringifyEnvValue(env.SMTP_USER),
+      smtpPass: stringifyEnvValue(env.SMTP_PASS)
+    };
+  }
+
+  if (channel === 'feishu') {
+    return {
+      ...retryConfig,
+      webhookUrl: stringifyEnvValue(env.FEISHU_WEBHOOK_URL),
+      webhookId: stringifyEnvValue(env.FEISHU_WEBHOOK_ID)
+    };
+  }
+
+  if (channel === 'dingtalk') {
+    return {
+      ...retryConfig,
+      accessToken: stringifyEnvValue(env.DINGTALK_ACCESS_TOKEN),
+      secret: stringifyEnvValue(env.DINGTALK_SECRET)
+    };
+  }
+
+  if (channel === 'wecom' || channel === 'wechat-work') {
+    return {
+      ...retryConfig,
+      key: stringifyEnvValue(env.WECOM_KEY),
+      maxBytes: Number.parseInt(env.WECOM_MAX_BYTES || '', 10) || undefined
+    };
+  }
+
+  if (channel === 'whatsapp') {
+    return {
+      ...retryConfig,
+      accessToken: stringifyEnvValue(env.WHATSAPP_ACCESS_TOKEN),
+      phoneNumberId: stringifyEnvValue(env.WHATSAPP_PHONE_NUMBER_ID),
+      recipientPhone: stringifyEnvValue(env.WHATSAPP_RECIPIENT_PHONE),
+      maxChars: Number.parseInt(env.WHATSAPP_MAX_CHARS || '', 10) || undefined
+    };
+  }
+
+  return retryConfig;
+}
+
+async function sendEmailViaResend(payload, emailConfig, config) {
+  ensureValue(emailConfig.resendApiKey, 'resendApiKey');
+  ensureValue(emailConfig.from, 'from');
+  if (emailConfig.to.length === 0) {
+    throw new Error('Missing required config: to');
+  }
+
+  const requestBody = {
+    from: emailConfig.from,
+    to: emailConfig.to,
+    subject: payload.subject,
+    html: payload.html || undefined,
+    text: payload.text || undefined
+  };
+
+  if (config.dryRun) {
+    return buildResult({
+      success: true,
+      channel: 'email',
+      response: {
+        dryRun: true,
+        mode: 'resend',
+        payload: requestBody
+      }
+    });
+  }
+
+  const retryOptions = normalizeRetryOptions(config);
+  const result = await retry(async () => {
+    const res = await postJSON('https://api.resend.com/emails', requestBody, {
+      Authorization: `Bearer ${emailConfig.resendApiKey}`
+    });
+    if (!res.ok) throw new Error(`Resend HTTP ${res.statusCode}`);
+    if (!res.response?.id) throw new Error('Resend response missing id');
+    return res;
+  }, retryOptions);
+
+  return buildResult({
+    success: true,
+    channel: 'email',
+    statusCode: result.statusCode,
+    response: result.response,
+    details: { mode: 'resend' }
+  });
+}
+
+async function sendEmailViaSmtp(payload, emailConfig, config) {
+  ensureValue(emailConfig.smtpHost, 'smtpHost');
+  ensureValue(emailConfig.smtpPort, 'smtpPort');
+  ensureValue(emailConfig.smtpUser, 'smtpUser');
+  ensureValue(emailConfig.smtpPass, 'smtpPass');
+  ensureValue(emailConfig.from, 'from');
+  if (emailConfig.to.length === 0) {
+    throw new Error('Missing required config: to');
+  }
+
+  const message = {
+    from: emailConfig.from,
+    to: emailConfig.to.join(', '),
+    subject: payload.subject,
+    html: payload.html || undefined,
+    text: payload.text || undefined
+  };
+
+  if (config.dryRun) {
+    return buildResult({
+      success: true,
+      channel: 'email',
+      response: {
+        dryRun: true,
+        mode: 'smtp',
+        payload: {
+          transport: {
+            host: emailConfig.smtpHost,
+            port: emailConfig.smtpPort,
+            secure: emailConfig.smtpSecure,
+            user: emailConfig.smtpUser
+          },
+          message
+        }
+      }
+    });
+  }
+
+  let nodemailer;
+  try {
+    nodemailer = require('nodemailer');
+  } catch (error) {
+    throw new Error('SMTP mode requires nodemailer. Install it with: npm install nodemailer');
+  }
+
+  const retryOptions = normalizeRetryOptions(config);
+  const transport = nodemailer.createTransport({
+    host: emailConfig.smtpHost,
+    port: emailConfig.smtpPort,
+    secure: emailConfig.smtpSecure,
+    auth: {
+      user: emailConfig.smtpUser,
+      pass: emailConfig.smtpPass
+    }
+  });
+
+  const info = await retry(async () => transport.sendMail(message), retryOptions);
+  return buildResult({
+    success: true,
+    channel: 'email',
+    response: {
+      messageId: info.messageId || null,
+      accepted: info.accepted || [],
+      rejected: info.rejected || []
+    },
+    details: { mode: 'smtp' }
+  });
+}
+
+async function sendEmail(formattedData, config = {}) {
+  try {
+    const payload = ensureEmailPayload(formattedData);
+    const emailConfig = normalizeEmailConfig(config);
+    const mode = detectEmailMode(emailConfig);
+    if (!mode) {
+      throw new Error('Email mode not detected. Provide RESEND_API_KEY or SMTP_HOST (or set mode)');
+    }
+
+    if (mode === 'resend') {
+      return sendEmailViaResend(payload, emailConfig, config);
+    }
+
+    return sendEmailViaSmtp(payload, emailConfig, config);
+  } catch (error) {
+    return buildResult({ success: false, channel: 'email', error });
   }
 }
 
@@ -409,6 +743,8 @@ async function main({ params }) {
   }
 
   switch (channel) {
+    case 'email':
+      return sendEmail(formattedData, config);
     case 'feishu':
       return sendToFeishu(formattedData, config);
     case 'dingtalk':
@@ -427,14 +763,56 @@ async function main({ params }) {
   }
 }
 
+async function runCli() {
+  try {
+    loadEnvFromDefaultFiles();
+    const args = parseCliArgs(process.argv.slice(2));
+    const input = args.input || args.i;
+    const channel = args.channel || args.c;
+
+    if (!input) {
+      throw new Error('Missing required argument: --input <formatted-json-file>');
+    }
+
+    if (!channel) {
+      throw new Error('Missing required argument: --channel <email|feishu|dingtalk|wecom|whatsapp>');
+    }
+
+    const formattedData = readJsonFile(path.resolve(process.cwd(), input));
+    const config = {
+      ...buildConfigFromEnv(channel),
+      dryRun: Boolean(args.dryRun || args['dry-run'])
+    };
+
+    const result = await main({
+      params: {
+        formattedData,
+        channel,
+        config
+      }
+    });
+
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    if (!result.success) {
+      process.exitCode = 1;
+    }
+  } catch (error) {
+    process.stderr.write(`${error.message || String(error)}\n`);
+    process.exitCode = 1;
+  }
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     main,
     postJSON,
     retry,
+    parseCliArgs,
+    buildConfigFromEnv,
     splitByBytes,
     splitByChars,
     resolveWecomMessages,
+    sendEmail,
     sendToFeishu,
     sendToDingtalk,
     sendToWecom,
@@ -444,4 +822,8 @@ if (typeof module !== 'undefined' && module.exports) {
 
 if (typeof exports !== 'undefined') {
   exports.main = main;
+}
+
+if (require.main === module) {
+  runCli();
 }

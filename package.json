@@ -9,5 +9,8 @@
     "test": "node scripts/summary-pipeline.test.js && node scripts/delivery.test.js",
     "fetch": "node scripts/rss-fetcher.js",
     "monitor": "node scripts/feed-quality-monitor.js"
+  },
+  "optionalDependencies": {
+    "nodemailer": "^6.10.1"
   }
 }
