@@ -368,7 +368,7 @@ const WEBHOOK_TEMPLATE = {
 // ==================== 格式化函数 ====================
 
 const DEFAULT_WHATSAPP_MAX_LENGTH = 4096;
-const DEFAULT_WECOM_SAFE_MAX_LENGTH = 1800;
+const DEFAULT_WECOM_SAFE_MAX_BYTES = 1800;
 const CATEGORY_KEYS = ['编程', 'AI', '系统', '硬件', '安全', '创业', '综合'];
 
 /**
@@ -502,6 +502,93 @@ function splitMessage(text, maxLength) {
       return `${chunk}${suffix}`;
     }
     return `${chunk.slice(0, maxLength - suffix.length)}${suffix}`;
+  });
+}
+
+function splitMessageByBytes(text, maxBytes) {
+  if (typeof text !== 'string') return [];
+  if (!Number.isInteger(maxBytes) || maxBytes < 32) {
+    throw new Error('splitMessageByBytes requires maxBytes >= 32');
+  }
+  if (Buffer.byteLength(text, 'utf8') <= maxBytes) return [text];
+
+  const chunks = [];
+  const paragraphs = text.split(/\n{2,}/).filter(Boolean);
+  let current = '';
+
+  const flushCurrent = () => {
+    if (current) {
+      chunks.push(current);
+      current = '';
+    }
+  };
+
+  const appendWithLimit = (segment) => {
+    const normalized = String(segment || '').trim();
+    if (!normalized) return;
+
+    if (!current) {
+      if (Buffer.byteLength(normalized, 'utf8') <= maxBytes) {
+        current = normalized;
+        return;
+      }
+      // 段落本身超长：按行+字符兜底切分
+      const lines = normalized.split('\n');
+      let longPart = '';
+      lines.forEach((line) => {
+        const candidate = longPart ? `${longPart}\n${line}` : line;
+        if (Buffer.byteLength(candidate, 'utf8') <= maxBytes) {
+          longPart = candidate;
+          return;
+        }
+        if (longPart) {
+          chunks.push(longPart);
+        }
+        longPart = '';
+        let rest = line;
+        while (Buffer.byteLength(rest, 'utf8') > maxBytes) {
+          let cut = rest.length;
+          while (cut > 0 && Buffer.byteLength(rest.slice(0, cut), 'utf8') > maxBytes) {
+            cut -= 1;
+          }
+          if (cut <= 0) break;
+          chunks.push(rest.slice(0, cut));
+          rest = rest.slice(cut);
+        }
+        longPart = rest;
+      });
+      if (longPart) {
+        current = longPart;
+      }
+      return;
+    }
+
+    const candidate = `${current}\n\n${normalized}`;
+    if (Buffer.byteLength(candidate, 'utf8') <= maxBytes) {
+      current = candidate;
+      return;
+    }
+
+    flushCurrent();
+    appendWithLimit(normalized);
+  };
+
+  paragraphs.forEach(appendWithLimit);
+  flushCurrent();
+
+  if (chunks.length <= 1) return chunks;
+  const total = chunks.length;
+  return chunks.map((chunk, idx) => {
+    const suffix = ` (${idx + 1}/${total})`;
+    const suffixBytes = Buffer.byteLength(suffix, 'utf8');
+    if (Buffer.byteLength(chunk, 'utf8') + suffixBytes <= maxBytes) {
+      return `${chunk}${suffix}`;
+    }
+    let trimmed = chunk;
+    while (trimmed && Buffer.byteLength(trimmed, 'utf8') + suffixBytes > maxBytes) {
+      trimmed = trimmed.slice(0, -1);
+    }
+    return `${trimmed}${suffix}`;
   });
 }
 
@@ -991,7 +1078,7 @@ function formatWecom(rawData) {
 
   text += `生成于 ${data.metadata.generatedAt}`;
 
-  const chunks = splitMessage(text, DEFAULT_WECOM_SAFE_MAX_LENGTH);
+  const chunks = splitMessageByBytes(text, DEFAULT_WECOM_SAFE_MAX_BYTES);
 
   return {
     msgtype: "text",
@@ -1165,7 +1252,7 @@ function formatEmailHtml(rawData) {
       </div>
     `;
   }).join('');
-  html = html.replace(/\{\{#each byCategory\}\}[\s\S]*?\{\{\/each\}\}/, categoriesHtml);
+  html = html.replace(/\{\{#each byCategory\}\}[\s\S]*\{\{\/each\}\}/, categoriesHtml);
 
   const otherTopHtml = otherTopArticles.length > 0
     ? `
@@ -1180,6 +1267,13 @@ function formatEmailHtml(rawData) {
     `
     : '';
   html = html.replace(/\{\{otherTopSection\}\}/g, otherTopHtml);
+  html = html.replace(/\{\{metadata\.generatedAt\}\}/g, data.metadata.generatedAt || '');
+
+  if (data.unsubscribeLink) {
+    html = html.replace(/\{\{unsubscribeLink\}\}/g, data.unsubscribeLink);
+  } else {
+    html = html.replace(/<a href="\{\{unsubscribeLink\}\}">取消订阅<\/a>/g, '');
+  }
 
   return html;
 }
@@ -1221,7 +1315,7 @@ function formatEmailText(rawData) {
     ).join('\n');
     return `${category} (${articles.length}篇)\n\n${articlesText}`;
   }).join('\n');
-  text = text.replace(/\{\{#each byCategory\}\}[\s\S]*?\{\{\/each\}\}/, categoriesText);
+  text = text.replace(/\{\{#each byCategory\}\}[\s\S]*\{\{\/each\}\}/, categoriesText);
 
   if (qualityText) {
     text = text.replace(
@@ -1234,6 +1328,7 @@ function formatEmailText(rawData) {
     ? `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📌 次级推荐 (${otherTopArticles.length}篇)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n${otherTopArticles.slice(0, 10).map((a, idx) => `${idx + 1}. ${a.title}\n   ${a.link}\n   ${a.source}${a.score !== undefined ? ` · Score: ${a.score}` : ''}\n`).join('\n')}\n`
     : '';
   text = text.replace(/\{\{otherTopSection\}\}/g, otherTopText);
+  text = text.replace(/\{\{metadata\.generatedAt\}\}/g, data.metadata.generatedAt || '');
 
   return text;
 }
@@ -1311,7 +1406,8 @@ if (typeof module !== 'undefined' && module.exports) {
     formatDingtalk,
     formatWecom,
     formatWhatsApp,
-    splitMessage
+    splitMessage,
+    splitMessageByBytes
   };
 }
 

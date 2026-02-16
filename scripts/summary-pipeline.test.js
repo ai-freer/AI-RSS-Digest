@@ -1,6 +1,6 @@
 const assert = require('assert');
 const { ensureSummaryShape } = require('./ai-summarizer');
-const { normalizeSummaryData, formatEmailText } = require('./output-formatter');
+const { normalizeSummaryData, formatEmailHtml, formatEmailText, formatWecom } = require('./output-formatter');
 
 function run() {
   const fetchData = {
@@ -75,6 +75,22 @@ function run() {
   assert.ok(text.includes('行动:'));
   assert.ok(text.includes('风险:'));
   assert.ok(text.includes('质量闸门'));
+  assert.ok(!text.includes('{{/each}}'));
+  assert.ok(!text.includes('{{metadata.generatedAt}}'));
+
+  const html = formatEmailHtml(normalized);
+  assert.ok(!html.includes('{{/each}}'));
+  assert.ok(!html.includes('{{metadata.generatedAt}}'));
+  assert.ok(!html.includes('{{unsubscribeLink}}'));
+
+  const wecom = formatWecom({
+    ...normalized,
+    dailyAdvice: '你'.repeat(1200)
+  });
+  assert.ok(Array.isArray(wecom.chunks));
+  wecom.chunks.forEach((chunk) => {
+    assert.ok(Buffer.byteLength(chunk, 'utf8') <= 1800);
+  });
 
   console.log('summary pipeline tests passed');
 }
