@@ -11,7 +11,8 @@ version: 2.3.1
 ## 一句话说明
 
 这是一个“**Agent 编排 + 本地脚本执行**”的 RSS 摘要流水线：  
-`fetch -> prepare-prompt -> Agent summarize -> validate -> format -> deliver(optional)`。
+基础模式：`fetch -> prepare-prompt -> Agent summarize -> validate -> format -> deliver(optional)`  
+精读增强模式：`fetch -> fetch-full -> prepare-deep-read -> Agent deep-read -> prepare-prompt(tier2) -> Agent tier2 -> assemble -> format -> deliver(optional)`。
 
 ## 使用原则
 
@@ -25,6 +26,11 @@ version: 2.3.1
 建议统一使用 `tmp/` 作为中间产物目录：
 
 - `tmp/fetch.json`
+- `tmp/fetch-enriched.json`（精读增强模式）
+- `tmp/deep-read-prompts.json`（精读增强模式）
+- `tmp/deep-read-results.json`（精读增强模式）
+- `tmp/prompt-tier2.txt`（精读增强模式）
+- `tmp/tier2-raw.json`（精读增强模式）
 - `tmp/prompt.txt`
 - `tmp/summary-raw.json`
 - `tmp/summary.json`
@@ -95,6 +101,35 @@ node scripts/prepare-prompt.js \
 
 - 检查 `--fetchFile` 路径
 - 检查模板文件是否存在
+
+---
+
+## 精读增强流程（9 步，可选）
+
+当需要 Top 文章“回源全文 + 单篇精读”时，按下面步骤执行：
+
+1. `rss-fetcher.js` 生成 `tmp/fetch.json`
+2. `full-content-fetcher.js` 回源抓取 Top 全文到 `tmp/fetch-enriched.json`
+3. `prepare-deep-read.js` 生成逐篇精读 prompts（`tmp/deep-read-prompts.json`）
+4. Agent 逐篇执行精读 prompt，产出 `tmp/deep-read-results.json`
+5. `prepare-prompt.js --deepReadResults ...` 仅组装 Tier2 prompt（`tmp/prompt-tier2.txt`）
+6. Agent 生成 Tier2 结果（`tmp/tier2-raw.json`）
+7. `assemble-summary.js` 合并精读 + Tier2，输出 `tmp/summary.json`
+8. `output-formatter.js` 渠道格式化
+9. `delivery.js`（可选）投递
+
+推荐命令：
+
+```bash
+node scripts/rss-fetcher.js --hours 24 --topN 7 --otherTopN 20 --outFile tmp/fetch.json
+node scripts/full-content-fetcher.js --fetchFile tmp/fetch.json --outFile tmp/fetch-enriched.json
+node scripts/prepare-deep-read.js --fetchFile tmp/fetch-enriched.json --template daily --outFile tmp/deep-read-prompts.json
+# Agent: 读取 tmp/deep-read-prompts.json，输出 tmp/deep-read-results.json
+node scripts/prepare-prompt.js --fetchFile tmp/fetch.json --template templates/prompt-summarize-tiered.md --deepReadResults tmp/deep-read-results.json --outFile tmp/prompt-tier2.txt
+# Agent: 读取 tmp/prompt-tier2.txt，输出 tmp/tier2-raw.json
+node scripts/assemble-summary.js --deepReadResults tmp/deep-read-results.json --tier2Raw tmp/tier2-raw.json --fetchFile tmp/fetch.json --outFile tmp/summary.json
+node scripts/output-formatter.js --input tmp/summary.json --channel email --outFile tmp/formatted-email.json
+```
 
 ---
 
@@ -260,6 +295,7 @@ node scripts/feed-quality-monitor.js
 - `templates/prompt-product.md`
 - `templates/prompt-executive.md`
 - `templates/prompt-summarize-tiered.md`（摘要模板）
+- `templates/prompt-deep-read.md`（单篇全文精读模板）
 
 注意：项目中没有 `templates/prompt.md`。
 

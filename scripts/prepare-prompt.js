@@ -12,50 +12,25 @@
 
 const fs = require('fs');
 const path = require('path');
-const { buildPromptArticles, buildPrompt } = require('./summary-utils');
+const { buildPromptArticles, buildPrompt, extractJson } = require('./summary-utils');
+const {
+  parseCliArgs,
+  ensureValue,
+  readJsonFile,
+  writeTextOutput
+} = require('./cli-utils');
 
-function parseArgs(argv) {
-  const args = {};
-  for (let i = 2; i < argv.length; i += 1) {
-    const token = argv[i];
-    if (!token.startsWith('--')) continue;
-    const key = token.slice(2);
-    const next = argv[i + 1];
-    if (!next || next.startsWith('--')) {
-      args[key] = true;
-      continue;
-    }
-    args[key] = next;
-    i += 1;
-  }
-  return args;
-}
-
-function ensureValue(value, name) {
-  if (value === undefined || value === null || value === '') {
-    throw new Error(`Missing required value: ${name}`);
-  }
-}
-
-function readJsonFile(filePath) {
+function parseJsonLoose(filePath) {
   const raw = fs.readFileSync(filePath, 'utf8');
-  return JSON.parse(raw);
-}
-
-function writeOutput(text, outFile) {
-  if (!outFile) {
-    process.stdout.write(text);
-    if (!text.endsWith('\n')) {
-      process.stdout.write('\n');
-    }
-    return;
+  const parsed = extractJson(raw);
+  if (!parsed) {
+    throw new Error(`Input does not contain valid JSON object: ${filePath}`);
   }
-  fs.mkdirSync(path.dirname(outFile), { recursive: true });
-  fs.writeFileSync(outFile, text);
+  return parsed;
 }
 
 function run() {
-  const args = parseArgs(process.argv);
+  const args = parseCliArgs(process.argv);
   const fetchFile = path.resolve(args.fetchFile || '');
   const templateFile = path.resolve(
     args.template || path.join(__dirname, '..', 'templates', 'prompt-summarize-tiered.md')
@@ -65,10 +40,33 @@ function run() {
   ensureValue(args.fetchFile, 'fetchFile');
 
   const fetchData = readJsonFile(fetchFile);
+  let promptFetchData = fetchData;
+  if (args.deepReadResults) {
+    const deepReadPath = path.resolve(args.deepReadResults);
+    const deepReadData = parseJsonLoose(deepReadPath);
+    const deepReadCount = Array.isArray(deepReadData?.results)
+      ? deepReadData.results.length
+      : Array.isArray(deepReadData?.tier1)
+        ? deepReadData.tier1.length
+        : Array.isArray(deepReadData)
+          ? deepReadData.length
+          : 0;
+    promptFetchData = {
+      ...fetchData,
+      topArticles: [],
+      metadata: {
+        ...(fetchData.metadata && typeof fetchData.metadata === 'object' ? fetchData.metadata : {}),
+        deepRead: {
+          enabled: true,
+          deepReadCount
+        }
+      }
+    };
+  }
   const templateText = fs.readFileSync(templateFile, 'utf8');
-  const articles = buildPromptArticles(fetchData);
-  const prompt = buildPrompt(templateText, articles, fetchData);
-  writeOutput(prompt, outFile);
+  const articles = buildPromptArticles(promptFetchData);
+  const prompt = buildPrompt(templateText, articles, promptFetchData);
+  writeTextOutput(prompt, outFile);
 }
 
 try {

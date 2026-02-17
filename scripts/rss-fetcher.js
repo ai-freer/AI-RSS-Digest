@@ -6,12 +6,14 @@
  * 分类方式：AI 动态分类（基于文章内容而非预定义标签）
  *
  * @author RSS Digest Skill
- * @version 2.1.0
+ * @version 2.3.1
  */
 
 // ==================== 配置 ====================
 const fs = require('fs');
 const path = require('path');
+const { USER_AGENT } = require('./project-meta');
+const { parseCliArgs } = require('./cli-utils');
 
 const CONFIG = {
   // 并发控制
@@ -483,7 +485,7 @@ async function fetchFeedOnce(feed, timeout = CONFIG.TIMEOUT) {
     const response = await fetch(feed.url, {
       signal: controller.signal,
       headers: {
-        'User-Agent': 'RSS-Digest/2.1.0'
+        'User-Agent': USER_AGENT
       }
     });
 
@@ -910,29 +912,25 @@ async function main({ params }) {
 
 // 用于测试
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { main, RSS_FEEDS, BASE_RSS_FEEDS, CN_RSS_FEEDS, buildFeedList, normalizeLanguageFilter, CONFIG, parseFeed, checkFeedHealth, checkFeedsHealth };
+  module.exports = {
+    main,
+    RSS_FEEDS,
+    BASE_RSS_FEEDS,
+    CN_RSS_FEEDS,
+    buildFeedList,
+    normalizeLanguageFilter,
+    CONFIG,
+    parseFeed,
+    checkFeedHealth,
+    checkFeedsHealth,
+    scoreAndSort,
+    selectRankedArticles
+  };
 }
 
 // 兼容运行环境入口
 if (typeof exports !== 'undefined') {
   exports.main = main;
-}
-
-function parseCliArgs(argv) {
-  const args = {};
-  for (let i = 2; i < argv.length; i += 1) {
-    const token = argv[i];
-    if (!token.startsWith('--')) continue;
-    const key = token.slice(2);
-    const next = argv[i + 1];
-    if (!next || next.startsWith('--')) {
-      args[key] = true;
-      continue;
-    }
-    args[key] = next;
-    i += 1;
-  }
-  return args;
 }
 
 function toNumber(value, fallback) {

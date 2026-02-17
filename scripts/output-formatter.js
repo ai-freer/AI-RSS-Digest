@@ -5,11 +5,13 @@
  * 支持邮件、飞书、钉钉、企业微信、WhatsApp 等多种输出格式
  *
  * @author RSS Digest Skill
- * @version 2.2.0
+ * @version 2.3.1
  */
 
 const fs = require('fs');
 const path = require('path');
+const { parseCliArgs } = require('./cli-utils');
+const { decodeHtmlEntities } = require('./summary-utils');
 
 // ==================== 邮件 HTML 模板 ====================
 
@@ -356,7 +358,7 @@ const WECOM_TEMPLATE = `📰 每日科技阅读 ({{date}})
 // ==================== Webhook JSON 模板 ====================
 
 const WEBHOOK_TEMPLATE = {
-  version: "2.2.0",
+  version: "2.3.1",
   timestamp: "{{metadata.generatedAt}}",
   type: "rss_digest",
   data: {
@@ -593,26 +595,6 @@ function splitMessageByBytes(text, maxBytes) {
     }
     return `${trimmed}${suffix}`;
   });
-}
-
-function decodeHtmlEntities(text) {
-  if (!text) return '';
-  return String(text)
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&amp;/g, '&')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&apos;/g, "'")
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => {
-      const code = parseInt(hex, 16);
-      return Number.isFinite(code) ? String.fromCodePoint(code) : '';
-    })
-    .replace(/&#(\d+);/g, (_, dec) => {
-      const code = parseInt(dec, 10);
-      return Number.isFinite(code) ? String.fromCodePoint(code) : '';
-    });
 }
 
 function cleanText(text, maxLen = null) {
@@ -1416,23 +1398,6 @@ if (typeof module !== 'undefined' && module.exports) {
 
 if (typeof exports !== 'undefined') {
   exports.main = main;
-}
-
-function parseCliArgs(argv) {
-  const args = {};
-  for (let i = 2; i < argv.length; i += 1) {
-    const token = argv[i];
-    if (!token.startsWith('--')) continue;
-    const key = token.slice(2);
-    const next = argv[i + 1];
-    if (!next || next.startsWith('--')) {
-      args[key] = true;
-      continue;
-    }
-    args[key] = next;
-    i += 1;
-  }
-  return args;
 }
 
 if (require.main === module) {

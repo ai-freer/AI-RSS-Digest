@@ -5,12 +5,13 @@
  * 支持：Email / 飞书 / 钉钉 / 企业微信 / WhatsApp
  *
  * @author RSS Digest Skill
- * @version 2.3.0
+ * @version 2.3.1
  */
 
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { parseCliArgs: parseStandardCliArgs } = require('./cli-utils');
 
 const DEFAULT_RETRY_OPTIONS = {
   retries: 3,
@@ -291,20 +292,7 @@ function readJsonFile(filePath) {
 }
 
 function parseCliArgs(argv = []) {
-  const args = {};
-  for (let index = 0; index < argv.length; index += 1) {
-    const token = argv[index];
-    if (!token.startsWith('--')) continue;
-    const key = token.slice(2);
-    const next = argv[index + 1];
-    if (!next || next.startsWith('--')) {
-      args[key] = true;
-      continue;
-    }
-    args[key] = next;
-    index += 1;
-  }
-  return args;
+  return parseStandardCliArgs(['node', 'delivery.js', ...argv]);
 }
 
 function buildConfigFromEnv(channel, env = process.env) {

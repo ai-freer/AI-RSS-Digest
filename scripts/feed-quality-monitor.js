@@ -413,7 +413,20 @@ async function run() {
   }, null, 2));
 }
 
-run().catch(err => {
-  console.error(err);
-  process.exit(1);
-});
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    run,
+    parseArgs,
+    classifyFailure,
+    looksLikeFeed,
+    extractFeedCandidatesFromHtml,
+    candidateFeedUrlsFromOrigins
+  };
+}
+
+if (require.main === module) {
+  run().catch(err => {
+    console.error(err);
+    process.exit(1);
+  });
+}

@@ -4,15 +4,25 @@
  * 纯工具模块：负责 prompt 组装、JSON 提取、结构归一化与质量闸门。
  * 不包含任何外部 LLM 调用逻辑。
  *
- * @version 2.3.0
+ * @version 2.3.1
  */
 
 const CATEGORY_KEYS = ['编程', 'AI', '系统', '硬件', '安全', '创业', '综合'];
 const QUALITY_RULES = {
   tier1MinSentences: 3,
+  tier1DeepReadMinSentences: 5,
   tier1MinKeyPoints: 3,
+  tier1DeepReadMaxKeyPoints: 5,
   tier2MinLen: 15,
   tier2MaxLen: 140
+};
+const TEMPLATE_HINTS = {
+  daily: '日常科技阅读视角，面向技术从业者，关注信息密度和实用价值。',
+  quick: '快速判断视角，只关注核心结论和阅读价值判断。',
+  'tech-dev': '技术评估与学习路径视角，面向中高级开发者和架构师，关注技术成熟度、适用场景和学习建议。',
+  product: '产品洞察视角，面向产品经理和创业者，关注产品创新、市场机会和可借鉴性。',
+  executive: '战略决策视角，面向高管和投资人，关注商业影响、竞争格局和行动建议。',
+  'summarize-tiered': '分层摘要视角，兼顾深度与广度，提供全面的结构化分析。'
 };
 
 function safeText(value, fallback = '') {
@@ -102,6 +112,37 @@ function buildPrompt(templateText, articles, fetchData = {}) {
     .replace(/\{\{otherTopArticles\}\}/g, JSON.stringify(sanitizedOther, null, 2));
 }
 
+function normalizeTemplateName(templateName) {
+  const normalized = safeText(templateName, '').toLowerCase();
+  if (!normalized) return 'daily';
+  if (normalized.startsWith('prompt-') && normalized.endsWith('.md')) {
+    return normalized.slice(7, -3);
+  }
+  if (normalized.endsWith('.md')) {
+    return normalized.slice(0, -3).replace(/^prompt-/, '');
+  }
+  return normalized.replace(/^prompt-/, '');
+}
+
+function getTemplateHints(templateName) {
+  const key = normalizeTemplateName(templateName);
+  return TEMPLATE_HINTS[key] || TEMPLATE_HINTS.daily;
+}
+
+function buildDeepReadPrompt(templateText, article, templateName) {
+  const name = normalizeTemplateName(templateName);
+  const hints = getTemplateHints(name);
+  const fullContent = safeText(article?.fullContent || article?.content, '信息不足');
+  return templateText
+    .replace(/\{\{templateName\}\}/g, name)
+    .replace(/\{\{templateHints\}\}/g, hints)
+    .replace(/\{\{title\}\}/g, safeText(article?.title, 'Untitled'))
+    .replace(/\{\{source\}\}/g, safeText(article?.source, 'unknown'))
+    .replace(/\{\{link\}\}/g, safeText(article?.link, ''))
+    .replace(/\{\{pubDate\}\}/g, safeText(article?.pubDate, ''))
+    .replace(/\{\{fullContent\}\}/g, fullContent);
+}
+
 function extractJson(text) {
   if (!text) return null;
   const trimmed = String(text).trim();
@@ -188,11 +229,40 @@ function bridgeFromTier1(tier1) {
   }));
 }
 
+function isDeepReadItem(article) {
+  if (!article || typeof article !== 'object') return false;
+  if (article.deepRead === true) return true;
+  const sourceType = safeText(article.sourceType || article.pipeline || article.summaryType, '').toLowerCase();
+  return sourceType === 'deep-read';
+}
+
+function normalizeDeepReadResult(result, rank) {
+  return {
+    rank: Number.isFinite(Number(result?.rank)) ? Number(result.rank) : rank,
+    title: safeText(result?.title, 'Untitled'),
+    link: safeText(result?.link, ''),
+    source: safeText(result?.source, 'unknown'),
+    category: ensureCategory(result?.category || inferCategory(result?.title, result?.summary || result?.keyPoints?.join(' '))),
+    summary: safeText(result?.summary, '信息不足，建议查看原文。'),
+    keyPoints: Array.isArray(result?.keyPoints) ? result.keyPoints : [],
+    action: safeText(result?.action, '建议先阅读原文关键段落，再决定是否投入时间深入。'),
+    risk: safeText(result?.risk, '摘要可能缺少上下文，结论需回源核对。'),
+    quotable: safeText(result?.quotable, ''),
+    extra: (result?.extra && typeof result.extra === 'object' && !Array.isArray(result.extra)) ? result.extra : {},
+    sourceType: 'deep-read',
+    deepRead: true
+  };
+}
+
 function normalizeTier1Item(article, rank) {
+  const isDeepRead = isDeepReadItem(article);
   const content = safeText(article.summary, '') || extractSentences(article.content, 3).join(' ');
+  const maxKeyPoints = isDeepRead ? QUALITY_RULES.tier1DeepReadMaxKeyPoints : 3;
   const keyPoints = Array.isArray(article.keyPoints)
-    ? article.keyPoints.slice(0, 3).map(item => extractShortSummary(item, 60))
-    : extractSentences(article.content, 3).map(item => extractShortSummary(item, 60));
+    ? article.keyPoints.slice(0, maxKeyPoints).map((item) => (
+      isDeepRead ? cleanText(item) : extractShortSummary(item, 60)
+    ))
+    : extractSentences(article.content, maxKeyPoints).map(item => extractShortSummary(item, isDeepRead ? 120 : 60));
 
   return {
     rank: Number.isFinite(Number(article.rank)) ? Number(article.rank) : rank,
@@ -202,8 +272,15 @@ function normalizeTier1Item(article, rank) {
     category: ensureCategory(article.category || inferCategory(article.title, article.summary || article.content)),
     summary: content || '信息不足，建议查看原文。',
     keyPoints: keyPoints.length > 0 ? keyPoints : ['信息不足，建议查看原文。'],
-    action: extractShortSummary(article.action || '建议先阅读原文再做决策。', 80),
-    risk: extractShortSummary(article.risk || '原文信息有限，判断可能偏差。', 80)
+    action: isDeepRead
+      ? cleanText(article.action || '建议先阅读原文再做决策。')
+      : extractShortSummary(article.action || '建议先阅读原文再做决策。', 80),
+    risk: isDeepRead
+      ? cleanText(article.risk || '原文信息有限，判断可能偏差。')
+      : extractShortSummary(article.risk || '原文信息有限，判断可能偏差。', 80),
+    quotable: cleanText(article.quotable || ''),
+    extra: (article.extra && typeof article.extra === 'object' && !Array.isArray(article.extra)) ? article.extra : {},
+    sourceType: isDeepRead ? 'deep-read' : safeText(article.sourceType, '')
   };
 }
 
@@ -236,14 +313,18 @@ function enforceTier1Quality(tier1) {
   const warnings = [];
   const fixed = tier1.map((item, idx) => {
     const output = { ...item };
+    const isDeepRead = output.sourceType === 'deep-read';
+    const minSentences = isDeepRead ? QUALITY_RULES.tier1DeepReadMinSentences : QUALITY_RULES.tier1MinSentences;
+    const maxKeyPoints = isDeepRead ? QUALITY_RULES.tier1DeepReadMaxKeyPoints : 3;
     output.summary = cleanText(output.summary || '');
     output.keyPoints = Array.isArray(output.keyPoints)
-      ? output.keyPoints.map(v => cleanText(v)).filter(Boolean).slice(0, 3)
+      ? output.keyPoints.map(v => cleanText(v)).filter(Boolean).slice(0, maxKeyPoints)
       : [];
     output.action = cleanText(output.action || '');
     output.risk = cleanText(output.risk || '');
+    output.quotable = cleanText(output.quotable || '');
 
-    if (!output.summary || sentenceCount(output.summary) < QUALITY_RULES.tier1MinSentences) {
+    if (!output.summary || sentenceCount(output.summary) < minSentences) {
       const rebuilt = buildSummaryFromKeyPoints(output.keyPoints);
       if (rebuilt) {
         output.summary = rebuilt;
@@ -257,8 +338,8 @@ function enforceTier1Quality(tier1) {
     }
 
     if (output.keyPoints.length < QUALITY_RULES.tier1MinKeyPoints) {
-      const fromSummary = extractSentences(output.summary, 6).map(v => extractShortSummary(v, 70));
-      output.keyPoints = [...output.keyPoints, ...fromSummary].filter(Boolean).slice(0, 3);
+      const fromSummary = extractSentences(output.summary, 6).map(v => extractShortSummary(v, isDeepRead ? 120 : 70));
+      output.keyPoints = [...output.keyPoints, ...fromSummary].filter(Boolean).slice(0, maxKeyPoints);
       while (output.keyPoints.length < QUALITY_RULES.tier1MinKeyPoints) {
         output.keyPoints.push('信息不足，建议查看原文。');
       }
@@ -275,6 +356,7 @@ function enforceTier1Quality(tier1) {
       warnings.push(`tier1[${idx}] risk fallback`);
     }
 
+    delete output.sourceType;
     return output;
   });
 
@@ -404,6 +486,12 @@ if (typeof module !== 'undefined' && module.exports) {
     enforceTier2Quality,
     inferCategory,
     cleanText,
-    QUALITY_RULES
+    decodeHtmlEntities,
+    QUALITY_RULES,
+    TEMPLATE_HINTS,
+    getTemplateHints,
+    buildDeepReadPrompt,
+    normalizeDeepReadResult,
+    normalizeTemplateName
   };
 }
