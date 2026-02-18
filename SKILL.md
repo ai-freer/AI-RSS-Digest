@@ -3,7 +3,7 @@ name: ak-92rss-digest
 description: |
   Agent 驱动的 RSS 每日摘要 Skill。脚本只做抓取、prompt 组装、摘要校验、
   格式化与投递；摘要生成由 Agent 本身完成。
-version: 2.3.1
+version: 2.3.2
 ---
 
 # RSS Digest Skill (Agent Mode)
