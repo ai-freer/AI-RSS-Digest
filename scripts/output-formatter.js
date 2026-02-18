@@ -198,18 +198,7 @@ const EMAIL_HTML_TEMPLATE = `<!DOCTYPE html>
     </div>
     {{/each}}
 
-    {{#each byCategory}}
-    <div class="category">
-      <h3>{{@key}} ({{this.length}}篇)</h3>
-      {{#each this}}
-      <div class="article">
-        <div class="article-title"><a href="{{link}}">{{title}}</a></div>
-        <div class="source">📰 {{source}}</div>
-        <div class="oneliner">{{oneLiner}}</div>
-      </div>
-      {{/each}}
-    </div>
-    {{/each}}
+    {{#each byCategory}}{{/each}}
 
     {{otherTopSection}}
 
@@ -240,17 +229,7 @@ const EMAIL_TEXT_TEMPLATE = `📰 每日科技阅读 ({{date}})
    推荐: {{reason}}
 
 {{/each}}
-{{#each byCategory}}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-{{@key}} ({{this.length}}篇)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-{{#each this}}
-· {{title}}
-  {{link}}
-  {{oneLiner}} ({{source}})
-
-{{/each}}
-{{/each}}
+{{#each byCategory}}{{/each}}
 {{otherTopSection}}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 由 RSS Digest 生成于 {{metadata.generatedAt}}
@@ -1237,7 +1216,7 @@ function formatEmailHtml(rawData) {
       </div>
     `;
   }).join('');
-  html = html.replace(/\{\{#each byCategory\}\}[\s\S]*\{\{\/each\}\}/, categoriesHtml);
+  html = html.replace(/\{\{#each byCategory\}\}[\s\S]*?\{\{\/each\}\}/, categoriesHtml);
 
   const otherTopHtml = otherTopArticles.length > 0
     ? `
@@ -1300,7 +1279,7 @@ function formatEmailText(rawData) {
     ).join('\n');
     return `${category} (${articles.length}篇)\n\n${articlesText}`;
   }).join('\n');
-  text = text.replace(/\{\{#each byCategory\}\}[\s\S]*\{\{\/each\}\}/, categoriesText);
+  text = text.replace(/\{\{#each byCategory\}\}[\s\S]*?\{\{\/each\}\}/, categoriesText);
 
   if (qualityText) {
     text = text.replace(
