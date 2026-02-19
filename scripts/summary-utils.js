@@ -223,6 +223,12 @@ function bridgeFromTier1(tier1) {
     title: safeText(a.title, 'Untitled'),
     link: safeText(a.link, ''),
     reason: extractShortSummary(a.summary || a.action || a.risk, 48),
+    summary: cleanText(a.summary || ''),
+    keyPoints: Array.isArray(a.keyPoints)
+      ? a.keyPoints.map(item => cleanText(item)).filter(Boolean).slice(0, QUALITY_RULES.tier1DeepReadMaxKeyPoints)
+      : [],
+    action: cleanText(a.action || ''),
+    risk: cleanText(a.risk || ''),
     for: safeText(a.for || '技术读者', '技术读者'),
     source: safeText(a.source, 'unknown'),
     category: ensureCategory(a.category)

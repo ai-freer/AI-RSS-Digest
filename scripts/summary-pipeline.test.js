@@ -7,17 +7,14 @@ const {
 } = require('./summary-utils');
 const {
   normalizeSummaryData,
-  formatEmailHtml,
-  formatEmailText,
-  formatWecom,
-  formatFeishuCard,
-  formatDingtalk,
-  formatWhatsApp,
-  splitMessage
+  formatMarkdown,
+  formatHtml,
+  formatJson
 } = require('./output-formatter');
 const { extractReadableText } = require('./full-content-fetcher');
 const { main: prepareDeepReadMain } = require('./prepare-deep-read');
 const { main: assembleSummaryMain } = require('./assemble-summary');
+const { ensureDeepReadRequirement } = require('./prepare-prompt');
 
 function run() {
   const fetchData = {
@@ -68,6 +65,7 @@ function run() {
     dailyAdvice: 'Read tier1 first.'
   };
 
+  // ensureSummaryShape
   const shaped = ensureSummaryShape(tieredInput, fetchData);
   assert.strictEqual(shaped.tier1.length, 1);
   assert.strictEqual(shaped.tier2.length, 1);
@@ -80,26 +78,44 @@ function run() {
   assert.ok(shaped.tier1[0].risk.length > 0);
   assert.strictEqual(shaped.tier2[0].oneLiner, '信息不足，建议查看原文。');
 
+  // ensureDeepReadRequirement
+  assert.throws(() => ensureDeepReadRequirement({}, fetchData), /Tier1 deep-read is required/);
+  assert.doesNotThrow(() => ensureDeepReadRequirement({ deepReadResults: 'tmp/deep-read-results.json' }, fetchData));
+  assert.doesNotThrow(() => ensureDeepReadRequirement({}, { topArticles: [], otherTopArticles: [] }));
+
+  // normalizeSummaryData
   const normalized = normalizeSummaryData(shaped);
   assert.strictEqual(normalized.highlights[0].summary.length > 0, true);
   assert.strictEqual(normalized.byCategory.编程[0].oneLiner.includes('<p>'), false);
   assert.ok(normalized.metadata.qualityGates.summary.warningCount > 0);
   assert.ok(normalized.metadata.qualityGates.summary.text.includes('自动修复'));
 
-  const text = formatEmailText(normalized);
-  assert.ok(text.includes('摘要:'));
-  assert.ok(text.includes('要点:'));
-  assert.ok(text.includes('行动:'));
-  assert.ok(text.includes('风险:'));
-  assert.ok(text.includes('质量闸门'));
-  assert.ok(!text.includes('{{/each}}'));
-  assert.ok(!text.includes('{{metadata.generatedAt}}'));
+  // formatMarkdown
+  const md = formatMarkdown(normalized);
+  assert.ok(typeof md === 'string');
+  assert.ok(md.includes('每日科技阅读'));
+  assert.ok(md.includes('深度推荐'));
+  assert.ok(md.includes('质量闸门'));
+  assert.ok(!md.includes('{{'));
 
-  const html = formatEmailHtml(normalized);
-  assert.ok(!html.includes('{{/each}}'));
-  assert.ok(!html.includes('{{metadata.generatedAt}}'));
-  assert.ok(!html.includes('{{unsubscribeLink}}'));
+  // formatHtml
+  const html = formatHtml(normalized);
+  assert.ok(typeof html === 'string');
+  assert.ok(html.includes('<!DOCTYPE html>'));
+  assert.ok(html.includes('rsd-highlight'));
+  assert.ok(html.includes('--rsd-color-primary'));
+  assert.ok(!html.includes('{{'));
+  assert.ok(!html.includes('unsubscribeLink'));
 
+  // formatJson
+  const json = formatJson(normalized);
+  assert.ok(typeof json === 'object');
+  assert.ok(Array.isArray(json.tier1));
+  assert.ok(Array.isArray(json.tier2));
+  assert.ok(Array.isArray(json.highlights));
+  assert.ok(json.metadata && json.metadata.generatedAt);
+
+  // buildDeepReadPrompt
   const deepReadPrompt = buildDeepReadPrompt(
     [
       '# Role',
@@ -121,6 +137,7 @@ function run() {
   assert.ok(deepReadPrompt.includes(getTemplateHints('tech-dev')));
   assert.ok(deepReadPrompt.includes('This is the full article content.'));
 
+  // extractReadableText
   const parsedText = extractReadableText(
     `
     <html>
@@ -134,6 +151,7 @@ function run() {
   );
   assert.ok(parsedText.includes('Main readable content.'));
 
+  // prepareDeepReadMain
   const deepReadPrompts = prepareDeepReadMain({
     params: {
       fetchData: {
@@ -155,6 +173,7 @@ function run() {
   assert.strictEqual(deepReadPrompts.result.prompts.length, 1);
   assert.ok(deepReadPrompts.result.prompts[0].prompt.includes('product'));
 
+  // assembleSummaryMain
   const assembled = assembleSummaryMain({
     params: {
       deepReadData: {
@@ -196,6 +215,7 @@ function run() {
   assert.strictEqual(assembled.result.tier2.length, 1);
   assert.strictEqual(assembled.result.tier1[0].quotable, '关键引述');
 
+  // normalizeDeepReadResult
   const normalizedDeepRead = normalizeDeepReadResult({
     title: 'Deep Direct',
     link: 'https://example.com/direct',
@@ -208,59 +228,6 @@ function run() {
   }, 1);
   assert.strictEqual(normalizedDeepRead.deepRead, true);
   assert.strictEqual(normalizedDeepRead.sourceType, 'deep-read');
-
-  const wecom = formatWecom({
-    ...normalized,
-    dailyAdvice: '你'.repeat(1200)
-  });
-  assert.ok(Array.isArray(wecom.chunks));
-  wecom.chunks.forEach((chunk) => {
-    assert.ok(Buffer.byteLength(chunk, 'utf8') <= 1800);
-  });
-
-  const feishu = formatFeishuCard(normalized);
-  assert.strictEqual(feishu.msg_type, 'interactive');
-  assert.ok(Array.isArray(feishu.card.elements));
-  assert.ok(feishu.card.elements.length > 0);
-
-  const dingtalk = formatDingtalk(normalized);
-  assert.strictEqual(dingtalk.msgtype, 'markdown');
-  assert.ok(dingtalk.markdown.text.includes('深度推荐'));
-
-  const whatsappTier2 = Array.from({ length: 120 }, (_, idx) => ({
-    rank: idx + 1,
-    title: `Long WhatsApp Title ${idx + 1}`,
-    link: `https://example.com/w/${idx + 1}`,
-    source: 'example',
-    category: '综合',
-    oneLiner: '用于触发 WhatsApp 自动分片的测试内容，保持语义完整并可读。'
-  }));
-  const hugeHighlights = Array.from({ length: 40 }, (_, idx) => ({
-    rank: idx + 1,
-    title: `Huge Highlight ${idx + 1}`,
-    link: `https://example.com/h/${idx + 1}`,
-    source: 'example',
-    category: '综合',
-    reason: '高价值内容，建议优先阅读。',
-    summary: '这是一段用于触发分片的长摘要。'.repeat(25),
-    action: '执行建议。'.repeat(20),
-    risk: '风险提示。'.repeat(20)
-  }));
-  const whatsapp = formatWhatsApp({
-    ...normalized,
-    highlights: hugeHighlights,
-    tier2: whatsappTier2,
-    byCategory: {}
-  });
-  assert.strictEqual(whatsapp.messaging_product, 'whatsapp');
-  assert.ok(Array.isArray(whatsapp.messages));
-  assert.ok(whatsapp.messages.length >= 2);
-
-  const chunks = splitMessage('a'.repeat(8200), 4096);
-  assert.ok(chunks.length >= 2);
-  chunks.forEach((chunk) => {
-    assert.ok(chunk.length <= 4096);
-  });
 
   console.log('summary pipeline tests passed');
 }

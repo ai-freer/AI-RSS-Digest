@@ -1,11 +1,10 @@
 /**
  * Output Formatter for RSS Digest
  *
- * 用于自动化流程的输出格式化脚本
- * 支持邮件、飞书、钉钉、企业微信、WhatsApp 等多种输出格式
+ * 输出三种基础格式：md（Markdown）、html、json
+ * 渠道适配由下游（如 universal-deliver）负责。
  *
  * @author RSS Digest Skill
- * @version 2.3.1
  */
 
 const fs = require('fs');
@@ -13,568 +12,9 @@ const path = require('path');
 const { parseCliArgs } = require('./cli-utils');
 const { decodeHtmlEntities } = require('./summary-utils');
 
-// ==================== 邮件 HTML 模板 ====================
+// ==================== 工具函数 ====================
 
-const EMAIL_HTML_TEMPLATE = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <style>
-    /* 响应式设计 */
-    @media (max-width: 600px) {
-      .container { padding: 10px !important; }
-      .highlight { padding: 12px !important; }
-      .article { padding: 8px !important; }
-    }
-
-    /* 深色模式支持 */
-    @media (prefers-color-scheme: dark) {
-      body { background: #1a1a1a !important; color: #e0e0e0 !important; }
-      .highlight { background: #2d2d2d !important; }
-      .article { background: #252525 !important; }
-      .category h3 { border-color: #444 !important; color: #66b3ff !important; }
-      h1 { color: #fff !important; border-color: #66b3ff !important; }
-      .advice { background: #1a2f4a !important; border-color: #66b3ff !important; }
-      a { color: #66b3ff !important; }
-      .source { color: #999 !important; }
-      .reason { color: #ff9966 !important; }
-      .oneliner { color: #ccc !important; }
-      .footer { border-color: #444 !important; color: #777 !important; }
-    }
-
-    /* 基础样式 */
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-      line-height: 1.6;
-      color: #333;
-      max-width: 600px;
-      margin: 0 auto;
-      padding: 20px;
-      background: #f5f5f5;
-    }
-    .container {
-      background: #fff;
-      border-radius: 8px;
-      padding: 30px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    }
-    h1 {
-      color: #1a1a1a;
-      border-bottom: 3px solid #0066cc;
-      padding-bottom: 15px;
-      margin-top: 0;
-      font-size: 24px;
-    }
-    h2 {
-      color: #333;
-      font-size: 18px;
-      margin-top: 30px;
-      margin-bottom: 15px;
-    }
-    .advice {
-      background: #f0f7ff;
-      border-left: 4px solid #0066cc;
-      padding: 15px 20px;
-      margin: 20px 0;
-      font-style: italic;
-      color: #444;
-      border-radius: 0 8px 8px 0;
-    }
-    .highlight {
-      background: #fff8e1;
-      border-radius: 8px;
-      padding: 15px 20px;
-      margin: 15px 0;
-      border: 1px solid #ffe082;
-    }
-    .highlight-title {
-      font-size: 16px;
-      font-weight: 600;
-      margin-bottom: 8px;
-    }
-    .highlight-title a {
-      color: #e65100;
-      text-decoration: none;
-    }
-    .highlight-title a:hover {
-      text-decoration: underline;
-    }
-    .category {
-      margin: 25px 0;
-    }
-    .category h3 {
-      color: #0066cc;
-      border-bottom: 2px solid #e0e0e0;
-      padding-bottom: 8px;
-      font-size: 16px;
-      margin-bottom: 12px;
-    }
-    .article {
-      margin: 10px 0;
-      padding: 12px;
-      background: #fafafa;
-      border-radius: 6px;
-      border-left: 3px solid #ddd;
-    }
-    .article-title {
-      font-weight: 500;
-      margin-bottom: 5px;
-    }
-    .article-title a {
-      color: #0066cc;
-      text-decoration: none;
-    }
-    .article-title a:hover {
-      text-decoration: underline;
-    }
-    .source {
-      color: #666;
-      font-size: 12px;
-      margin-top: 5px;
-    }
-    .reason {
-      color: #d84315;
-      font-size: 13px;
-      margin-top: 8px;
-      font-weight: 500;
-    }
-    .oneliner {
-      color: #555;
-      font-size: 13px;
-      margin-top: 5px;
-      line-height: 1.5;
-    }
-    .stats {
-      background: #f5f5f5;
-      padding: 10px 15px;
-      border-radius: 6px;
-      font-size: 13px;
-      color: #666;
-      margin: 20px 0;
-    }
-    .footer {
-      margin-top: 40px;
-      padding-top: 20px;
-      border-top: 1px solid #e0e0e0;
-      color: #999;
-      font-size: 12px;
-      text-align: center;
-    }
-    .footer a {
-      color: #999;
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <h1>📰 每日科技阅读 ({{date}})</h1>
-
-    <div class="stats">
-      共 {{summary.totalArticles}} 篇文章 |
-      编程: {{summary.categories.编程}} |
-      AI: {{summary.categories.AI}} |
-      系统: {{summary.categories.系统}} |
-      硬件: {{summary.categories.硬件}} |
-      安全: {{summary.categories.安全}} |
-      创业: {{summary.categories.创业}} |
-      综合: {{summary.categories.综合}}
-    </div>
-
-    <div class="advice">{{dailyAdvice}}</div>
-
-    <!-- 深度风格/商业风格的额外字段 -->
-    {{trendInsight}}
-    {{marketTrend}}
-
-    <h2>⭐ 深度推荐</h2>
-    {{#each highlights}}
-    <div class="highlight">
-      <div class="highlight-title">
-        <strong>#{{rank}}</strong> <a href="{{link}}">{{title}}</a>
-      </div>
-      <div class="source">📰 {{source}} · {{category}}</div>
-      <div class="reason">💡 {{reason}}</div>
-    </div>
-    {{/each}}
-
-    {{#each byCategory}}{{/each}}
-
-    {{otherTopSection}}
-
-    <div class="footer">
-      由 RSS Digest 生成于 {{metadata.generatedAt}}<br>
-      <a href="{{unsubscribeLink}}">取消订阅</a>
-    </div>
-  </div>
-</body>
-</html>`;
-
-// ==================== 邮件纯文本模板 ====================
-
-const EMAIL_TEXT_TEMPLATE = `📰 每日科技阅读 ({{date}})
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-今日建议
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-{{dailyAdvice}}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⭐ 深度推荐
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-{{#each highlights}}
-#{{rank}}. {{title}}
-   链接: {{link}}
-   来源: {{source}} · {{category}}
-   推荐: {{reason}}
-
-{{/each}}
-{{#each byCategory}}{{/each}}
-{{otherTopSection}}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-由 RSS Digest 生成于 {{metadata.generatedAt}}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
-
-// ==================== 飞书卡片模板 ====================
-
-const FEISHU_TEMPLATE = {
-  msg_type: "interactive",
-  card: {
-    config: { wide_screen_mode: true },
-    header: {
-      title: { tag: "plain_text", content: "📰 每日科技阅读 ({{date}})" },
-      template: "blue"
-    },
-    elements: [
-      // 统计信息
-      {
-        tag: "div",
-        text: {
-          tag: "lark_md",
-          content: "**📊 今日概览**\n共 {{summary.totalArticles}} 篇文章 | 编程: {{summary.categories.编程}} | AI: {{summary.categories.AI}} | 系统: {{summary.categories.系统}} | 硬件: {{summary.categories.硬件}} | 安全: {{summary.categories.安全}} | 创业: {{summary.categories.创业}} | 综合: {{summary.categories.综合}}"
-        }
-      },
-      { tag: "hr" },
-      // 今日建议
-      {
-        tag: "div",
-        text: { tag: "lark_md", content: "**💡 今日建议**\n{{dailyAdvice}}" }
-      },
-      { tag: "hr" },
-      // 深度推荐标题
-      {
-        tag: "div",
-        text: { tag: "lark_md", content: "**⭐ 深度推荐**" }
-      }
-      // 精选文章将在代码中动态添加
-    ]
-  }
-};
-
-// ==================== 钉钉 Markdown 模板 ====================
-
-const DINGTALK_TEMPLATE = `# 📰 每日科技阅读 ({{date}})
-
-> **📊 今日概览**
-> 共 {{summary.totalArticles}} 篇文章
-> 编程: {{summary.categories.编程}} | AI: {{summary.categories.AI}} | 系统: {{summary.categories.系统}} | 硬件: {{summary.categories.硬件}} | 安全: {{summary.categories.安全}} | 创业: {{summary.categories.创业}} | 综合: {{summary.categories.综合}}
-
----
-
-## 💡 今日建议
-
-{{dailyAdvice}}
-
----
-
-## ⭐ 深度推荐
-
-{{#each highlights}}
-**{{rank}}.** [{{title}}]({{link}})
-📰 {{source}} · {{category}}
-💡 {{reason}}
-
-{{/each}}
-
----
-{{#each byCategory}}
-## {{@key}} ({{this.length}}篇)
-
-{{#each this}}
-- [{{title}}]({{link}})
-  > {{oneLiner}}
-  > 📰 {{source}}
-
-{{/each}}
----
-{{/each}}
-
-*由 RSS Digest 生成于 {{metadata.generatedAt}}*`;
-
-// ==================== 企业微信模板 ====================
-
-const WECOM_TEMPLATE = `📰 每日科技阅读 ({{date}})
-
-💡 {{dailyAdvice}}
-
-⭐ 深度推荐:
-{{#each highlights}}
-{{rank}}. {{title}}
-{{link}}
-{{/each}}
-
-📊 分类速览:
-{{#each byCategory}}
-{{@key}}({{this.length}}篇):
-{{#each this}}
-· {{title}}
-{{/each}}
-
-{{/each}}
-
-生成于 {{metadata.generatedAt}}`;
-
-// ==================== Webhook JSON 模板 ====================
-
-const WEBHOOK_TEMPLATE = {
-  version: "2.3.1",
-  timestamp: "{{metadata.generatedAt}}",
-  type: "rss_digest",
-  data: {
-    date: "{{date}}",
-    summary: "{{summary}}",
-    highlights: "{{highlights}}",
-    byCategory: "{{byCategory}}",
-    dailyAdvice: "{{dailyAdvice}}"
-  }
-};
-
-// ==================== 格式化函数 ====================
-
-const DEFAULT_WHATSAPP_MAX_LENGTH = 4096;
-const DEFAULT_WECOM_SAFE_MAX_BYTES = 1800;
 const CATEGORY_KEYS = ['编程', 'AI', '系统', '硬件', '安全', '创业', '综合'];
-
-/**
- * 简单的模板引擎
- */
-function renderTemplate(template, data) {
-  let result = template;
-
-  // 处理 {{variable}}
-  result = result.replace(/\{\{(\w+)\}\}/g, (match, key) => {
-    return data[key] !== undefined ? data[key] : match;
-  });
-
-  // 处理 {{#each array}} ... {{/each}}
-  result = result.replace(/\{\{#each (\w+)\}\}([\s\S]*?)\{\{\/each\}\}/g, (match, arrayKey, content) => {
-    const array = data[arrayKey];
-    if (!Array.isArray(array)) return '';
-
-    return array.map((item, index) => {
-      let itemContent = content;
-      // 替换 {{property}}
-      itemContent = itemContent.replace(/\{\{(\w+)\}\}/g, (m, k) => item[k] !== undefined ? item[k] : m);
-      // 替换 {{@key}} 和 {{@index}}
-      itemContent = itemContent.replace(/\{\{@key\}\}/g, Object.keys(data[arrayKey])[index] || '');
-      itemContent = itemContent.replace(/\{\{@index\}\}/g, index);
-      return itemContent;
-    }).join('');
-  });
-
-  // 处理对象的 {{#each}}
-  result = result.replace(/\{\{#each (\w+)\}\}([\s\S]*?)\{\{\/each\}\}/g, (match, objKey, content) => {
-    const obj = data[objKey];
-    if (typeof obj !== 'object' || Array.isArray(obj)) return '';
-
-    return Object.entries(obj).map(([key, items]) => {
-      let itemContent = content;
-      itemContent = itemContent.replace(/\{\{@key\}\}/g, key);
-      itemContent = itemContent.replace(/\{\{this\.length\}\}/g, items.length);
-
-      // 处理嵌套的 {{#each this}}
-      itemContent = itemContent.replace(/\{\{#each this\}\}([\s\S]*?)\{\{\/each\}\}/g, (m, c) => {
-        if (!Array.isArray(items)) return '';
-        return items.map(subItem => {
-          let subContent = c;
-          subContent = subContent.replace(/\{\{(\w+)\}\}/g, (sm, sk) => subItem[sk] !== undefined ? subItem[sk] : sm);
-          return subContent;
-        }).join('');
-      });
-
-      return itemContent;
-    }).join('');
-  });
-
-  return result;
-}
-
-/**
- * 按段落优先切分长消息，并在末尾追加分页标记 (1/3)
- */
-function splitMessage(text, maxLength) {
-  if (typeof text !== 'string') return [];
-  if (!Number.isInteger(maxLength) || maxLength < 32) {
-    throw new Error('splitMessage requires maxLength >= 32');
-  }
-  if (text.length <= maxLength) return [text];
-
-  const chunks = [];
-  const paragraphs = text.split(/\n{2,}/).filter(Boolean);
-  let current = '';
-
-  const flushCurrent = () => {
-    if (current) {
-      chunks.push(current);
-      current = '';
-    }
-  };
-
-  const appendWithLimit = (segment) => {
-    const normalized = String(segment || '').trim();
-    if (!normalized) return;
-
-    if (!current) {
-      if (normalized.length <= maxLength) {
-        current = normalized;
-        return;
-      }
-      // 段落本身超长：按行+字符兜底切分
-      const lines = normalized.split('\n');
-      let longPart = '';
-      lines.forEach((line) => {
-        const candidate = longPart ? `${longPart}\n${line}` : line;
-        if (candidate.length <= maxLength) {
-          longPart = candidate;
-          return;
-        }
-        if (longPart) {
-          chunks.push(longPart);
-        }
-        longPart = '';
-        let rest = line;
-        while (rest.length > maxLength) {
-          chunks.push(rest.slice(0, maxLength));
-          rest = rest.slice(maxLength);
-        }
-        longPart = rest;
-      });
-      if (longPart) {
-        current = longPart;
-      }
-      return;
-    }
-
-    const candidate = `${current}\n\n${normalized}`;
-    if (candidate.length <= maxLength) {
-      current = candidate;
-      return;
-    }
-
-    flushCurrent();
-    appendWithLimit(normalized);
-  };
-
-  paragraphs.forEach(appendWithLimit);
-  flushCurrent();
-
-  if (chunks.length <= 1) return chunks;
-  const total = chunks.length;
-  return chunks.map((chunk, idx) => {
-    const suffix = ` (${idx + 1}/${total})`;
-    if (chunk.length + suffix.length <= maxLength) {
-      return `${chunk}${suffix}`;
-    }
-    return `${chunk.slice(0, maxLength - suffix.length)}${suffix}`;
-  });
-}
-
-function splitMessageByBytes(text, maxBytes) {
-  if (typeof text !== 'string') return [];
-  if (!Number.isInteger(maxBytes) || maxBytes < 32) {
-    throw new Error('splitMessageByBytes requires maxBytes >= 32');
-  }
-  if (Buffer.byteLength(text, 'utf8') <= maxBytes) return [text];
-
-  const chunks = [];
-  const paragraphs = text.split(/\n{2,}/).filter(Boolean);
-  let current = '';
-
-  const flushCurrent = () => {
-    if (current) {
-      chunks.push(current);
-      current = '';
-    }
-  };
-
-  const appendWithLimit = (segment) => {
-    const normalized = String(segment || '').trim();
-    if (!normalized) return;
-
-    if (!current) {
-      if (Buffer.byteLength(normalized, 'utf8') <= maxBytes) {
-        current = normalized;
-        return;
-      }
-      // 段落本身超长：按行+字符兜底切分
-      const lines = normalized.split('\n');
-      let longPart = '';
-      lines.forEach((line) => {
-        const candidate = longPart ? `${longPart}\n${line}` : line;
-        if (Buffer.byteLength(candidate, 'utf8') <= maxBytes) {
-          longPart = candidate;
-          return;
-        }
-        if (longPart) {
-          chunks.push(longPart);
-        }
-        longPart = '';
-        let rest = line;
-        while (Buffer.byteLength(rest, 'utf8') > maxBytes) {
-          let cut = rest.length;
-          while (cut > 0 && Buffer.byteLength(rest.slice(0, cut), 'utf8') > maxBytes) {
-            cut -= 1;
-          }
-          if (cut <= 0) break;
-          chunks.push(rest.slice(0, cut));
-          rest = rest.slice(cut);
-        }
-        longPart = rest;
-      });
-      if (longPart) {
-        current = longPart;
-      }
-      return;
-    }
-
-    const candidate = `${current}\n\n${normalized}`;
-    if (Buffer.byteLength(candidate, 'utf8') <= maxBytes) {
-      current = candidate;
-      return;
-    }
-
-    flushCurrent();
-    appendWithLimit(normalized);
-  };
-
-  paragraphs.forEach(appendWithLimit);
-  flushCurrent();
-
-  if (chunks.length <= 1) return chunks;
-  const total = chunks.length;
-  return chunks.map((chunk, idx) => {
-    const suffix = ` (${idx + 1}/${total})`;
-    const suffixBytes = Buffer.byteLength(suffix, 'utf8');
-    if (Buffer.byteLength(chunk, 'utf8') + suffixBytes <= maxBytes) {
-      return `${chunk}${suffix}`;
-    }
-    let trimmed = chunk;
-    while (trimmed && Buffer.byteLength(trimmed, 'utf8') + suffixBytes > maxBytes) {
-      trimmed = trimmed.slice(0, -1);
-    }
-    return `${trimmed}${suffix}`;
-  });
-}
 
 function cleanText(text, maxLen = null) {
   const cleaned = decodeHtmlEntities(String(text || ''))
@@ -807,552 +247,294 @@ function getQualityGateText(data) {
   return cleanText(data?.metadata?.qualityGates?.summary?.text || '', 220);
 }
 
+// ==================== 格式化函数 ====================
+
 /**
- * 格式化飞书卡片
+ * 输出 Markdown 格式
  */
-function formatFeishuCard(rawData) {
+function formatMarkdown(rawData) {
   const data = normalizeSummaryData(rawData);
   const qualityText = getQualityGateText(data);
   const highlights = Array.isArray(data.highlights) ? data.highlights : [];
   const byCategory = data.byCategory && typeof data.byCategory === 'object' ? data.byCategory : {};
   const otherTopArticles = Array.isArray(data.otherTopArticles) ? data.otherTopArticles : [];
-  const card = JSON.parse(JSON.stringify(FEISHU_TEMPLATE));
 
-  // 设置标题
-  card.card.header.title.content = `📰 每日科技阅读 (${data.date})`;
-
-  // 构建 elements
-  const elements = [];
-
-  // 统计信息
-  elements.push({
-    tag: "div",
-    text: {
-      tag: "lark_md",
-      content: `**📊 今日概览**\n共 ${data.summary.totalArticles} 篇文章 | 编程: ${data.summary.categories.编程 || 0} | AI: ${data.summary.categories.AI || 0} | 系统: ${data.summary.categories.系统 || 0} | 硬件: ${data.summary.categories.硬件 || 0} | 安全: ${data.summary.categories.安全 || 0} | 创业: ${data.summary.categories.创业 || 0} | 综合: ${data.summary.categories.综合 || 0}`
-    }
-  });
-  elements.push({ tag: "hr" });
-
-  // 今日建议
-  elements.push({
-    tag: "div",
-    text: { tag: "lark_md", content: `**💡 今日建议**\n${data.dailyAdvice}` }
-  });
-  if (qualityText) {
-    elements.push({
-      tag: "div",
-      text: { tag: "lark_md", content: `**🧪 质量闸门**\n${qualityText}` }
-    });
-  }
-  elements.push({ tag: "hr" });
-
-  // 深度推荐
-  elements.push({
-    tag: "div",
-    text: { tag: "lark_md", content: "**⭐ 深度推荐**" }
-  });
-
-  highlights.forEach(h => {
-    const summaryLine = h.summary ? `\n📝 ${h.summary}` : '';
-    const actionLine = h.action ? `\n✅ ${h.action}` : '';
-    const riskLine = h.risk ? `\n⚠️ ${h.risk}` : '';
-    elements.push({
-      tag: "div",
-      text: {
-        tag: "lark_md",
-        content: `**#${h.rank}** [${h.title}](${h.link})\n📰 ${h.source} · ${h.category}\n💡 ${h.reason}${summaryLine}${actionLine}${riskLine}`
-      }
-    });
-    elements.push({ tag: "hr" });
-  });
-
-  // 分类速览
-  Object.entries(byCategory).forEach(([category, articles]) => {
-    if (articles.length === 0) return;
-
-    elements.push({
-      tag: "div",
-      text: { tag: "lark_md", content: `**📂 ${category} (${articles.length}篇)**` }
-    });
-
-    articles.slice(0, 5).forEach(a => {
-      elements.push({
-        tag: "div",
-        text: {
-          tag: "lark_md",
-          content: `· [${a.title}](${a.link})\n  ${a.oneLiner}`
-        }
-      });
-    });
-
-    if (articles.length > 5) {
-      elements.push({
-        tag: "div",
-        text: { tag: "lark_md", content: `*...还有 ${articles.length - 5} 篇*` }
-      });
-    }
-
-    elements.push({ tag: "hr" });
-  });
-
-  if (otherTopArticles.length > 0) {
-    elements.push({
-      tag: "div",
-      text: { tag: "lark_md", content: `**📌 次级推荐 (${otherTopArticles.length}篇)**` }
-    });
-    otherTopArticles.slice(0, 10).forEach((a, idx) => {
-      elements.push({
-        tag: "div",
-        text: {
-          tag: "lark_md",
-          content: `${idx + 1}. [${a.title}](${a.link})\n📰 ${a.source}${a.score !== undefined ? ` · Score: ${a.score}` : ''}`
-        }
-      });
-    });
-    elements.push({ tag: "hr" });
-  }
-
-  // 页脚
-  elements.push({
-    tag: "div",
-    text: {
-      tag: "lark_md",
-      content: `*由 RSS Digest 生成于 ${data.metadata.generatedAt}*`
-    }
-  });
-
-  card.card.elements = elements;
-  return card;
-}
-
-/**
- * 格式化钉钉消息
- */
-function formatDingtalk(rawData) {
-  const data = normalizeSummaryData(rawData);
-  const qualityText = getQualityGateText(data);
-  const highlights = Array.isArray(data.highlights) ? data.highlights : [];
-  const byCategory = data.byCategory && typeof data.byCategory === 'object' ? data.byCategory : {};
-  const otherTopArticles = Array.isArray(data.otherTopArticles) ? data.otherTopArticles : [];
-  let markdown = `# 📰 每日科技阅读 (${data.date})\n\n`;
+  let md = `# 📰 每日科技阅读 (${data.date})\n\n`;
 
   // 统计
-  markdown += `> **📊 今日概览**\n`;
-  markdown += `> 共 ${data.summary.totalArticles} 篇文章\n`;
-  markdown += `> 编程: ${data.summary.categories.编程 || 0} | AI: ${data.summary.categories.AI || 0} | 系统: ${data.summary.categories.系统 || 0} | 硬件: ${data.summary.categories.硬件 || 0} | 安全: ${data.summary.categories.安全 || 0} | 创业: ${data.summary.categories.创业 || 0} | 综合: ${data.summary.categories.综合 || 0}\n\n`;
-  markdown += `---\n\n`;
+  const cats = data.summary.categories || {};
+  md += `> 共 ${data.summary.totalArticles} 篇文章`;
+  const catParts = CATEGORY_KEYS.filter(k => cats[k] > 0).map(k => `${k}: ${cats[k]}`);
+  if (catParts.length > 0) md += ` | ${catParts.join(' | ')}`;
+  md += '\n\n';
 
   // 今日建议
-  markdown += `## 💡 今日建议\n\n${data.dailyAdvice}\n\n---\n\n`;
+  md += `## 💡 今日建议\n\n${data.dailyAdvice}\n\n`;
+
+  // 质量闸门
   if (qualityText) {
-    markdown += `> **🧪 质量闸门**\n> ${qualityText}\n\n---\n\n`;
+    md += `> 🧪 质量闸门：${qualityText}\n\n`;
   }
 
-  // 深度推荐
-  markdown += `## ⭐ 深度推荐\n\n`;
+  // 深度推荐（Tier1）
+  md += `## ⭐ 深度推荐\n\n`;
   highlights.forEach(h => {
-    markdown += `**${h.rank}.** [${h.title}](${h.link})\n`;
-    markdown += `📰 ${h.source} · ${h.category}\n`;
-    markdown += `💡 ${h.reason}\n\n`;
-    if (h.summary) markdown += `> 摘要: ${h.summary}\n`;
+    md += `### ${h.rank}. [${h.title}](${h.link})\n\n`;
+    md += `📰 ${h.source} · ${h.category}\n\n`;
+    md += `💡 ${h.reason}\n\n`;
+    if (h.summary) md += `${h.summary}\n\n`;
     if (Array.isArray(h.keyPoints) && h.keyPoints.length > 0) {
-      h.keyPoints.slice(0, 3).forEach(k => { markdown += `> - ${k}\n`; });
+      h.keyPoints.forEach(k => { md += `- ${k}\n`; });
+      md += '\n';
     }
-    if (h.action) markdown += `> ✅ ${h.action}\n`;
-    if (h.risk) markdown += `> ⚠️ ${h.risk}\n`;
-    markdown += '\n';
+    if (h.action) md += `✅ **行动**：${h.action}\n\n`;
+    if (h.risk) md += `⚠️ **风险**：${h.risk}\n\n`;
+    md += '---\n\n';
   });
-  markdown += `---\n\n`;
 
-  // 分类
+  // 分类速览（Tier2）
   Object.entries(byCategory).forEach(([category, articles]) => {
     if (articles.length === 0) return;
-
-    markdown += `## ${category} (${articles.length}篇)\n\n`;
+    md += `## ${category} (${articles.length}篇)\n\n`;
     articles.forEach(a => {
-      markdown += `- [${a.title}](${a.link})\n`;
-      markdown += `  > ${a.oneLiner}\n`;
-      markdown += `  > 📰 ${a.source}\n\n`;
+      md += `- [${a.title}](${a.link})  \n`;
+      md += `  ${a.oneLiner} *(${a.source})*\n`;
     });
-    markdown += `---\n\n`;
+    md += '\n';
   });
 
+  // 次级推荐
   if (otherTopArticles.length > 0) {
-    markdown += `## 📌 次级推荐 (${otherTopArticles.length}篇)\n\n`;
+    md += `## 📌 次级推荐 (${otherTopArticles.length}篇)\n\n`;
     otherTopArticles.slice(0, 10).forEach((a, idx) => {
-      markdown += `${idx + 1}. [${a.title}](${a.link})\n`;
-      markdown += `   > 📰 ${a.source}${a.score !== undefined ? ` · Score: ${a.score}` : ''}\n`;
+      md += `${idx + 1}. [${a.title}](${a.link}) — ${a.source}${a.score !== undefined ? ` · Score: ${a.score}` : ''}\n`;
     });
-    markdown += `\n---\n\n`;
+    md += '\n';
   }
 
-  markdown += `*由 RSS Digest 生成于 ${data.metadata.generatedAt}*`;
-
-  return {
-    msgtype: "markdown",
-    markdown: { title: `每日科技阅读 (${data.date})`, text: markdown }
-  };
+  md += `---\n\n*由 RSS Digest 生成于 ${data.metadata.generatedAt}*\n`;
+  return md;
 }
 
 /**
- * 格式化企业微信消息
+ * 输出 HTML 格式
+ *
+ * 设计原则：
+ * - CSS 自定义属性定义颜色/间距，使用方可一键覆盖
+ * - 语义化结构（article/section/header），便于进一步定制
+ * - 内置样式保证最差也好看，不绑定任何渠道特定字段
  */
-function formatWecom(rawData) {
-  const data = normalizeSummaryData(rawData);
-  const qualityText = getQualityGateText(data);
-  const highlights = Array.isArray(data.highlights) ? data.highlights : [];
-  const byCategory = data.byCategory && typeof data.byCategory === 'object' ? data.byCategory : {};
-  const otherTopArticles = Array.isArray(data.otherTopArticles) ? data.otherTopArticles : [];
-  let text = `📰 每日科技阅读 (${data.date})\n\n`;
-  text += `💡 ${data.dailyAdvice}\n\n`;
-  if (qualityText) {
-    text += `🧪 质量闸门: ${qualityText}\n\n`;
-  }
-  text += `⭐ 深度推荐:\n`;
-
-  highlights.forEach(h => {
-    text += `${h.rank}. ${h.title}\n${h.link}\n`;
-    if (h.summary) text += `摘要: ${h.summary}\n`;
-    if (h.action) text += `行动: ${h.action}\n`;
-    if (h.risk) text += `风险: ${h.risk}\n`;
-    text += '\n';
-  });
-
-  text += `📊 分类速览:\n`;
-  Object.entries(byCategory).forEach(([category, articles]) => {
-    if (articles.length === 0) return;
-    text += `${category}(${articles.length}篇):\n`;
-    articles.slice(0, 3).forEach(a => {
-      text += `· ${a.title}\n`;
-    });
-    if (articles.length > 3) {
-      text += `...还有${articles.length - 3}篇\n`;
-    }
-    text += `\n`;
-  });
-
-  if (otherTopArticles.length > 0) {
-    text += `📌 次级推荐(${otherTopArticles.length}篇):\n`;
-    otherTopArticles.slice(0, 5).forEach((a, idx) => {
-      text += `${idx + 1}. ${a.title}\n`;
-    });
-    text += `\n`;
-  }
-
-  text += `生成于 ${data.metadata.generatedAt}`;
-
-  const chunks = splitMessageByBytes(text, DEFAULT_WECOM_SAFE_MAX_BYTES);
-
-  return {
-    msgtype: "text",
-    text: { content: text },
-    chunks
-  };
-}
-
-/**
- * 格式化 WhatsApp 消息
- */
-function formatWhatsApp(rawData) {
+function formatHtml(rawData) {
   const data = normalizeSummaryData(rawData);
   const qualityText = getQualityGateText(data);
   const highlights = Array.isArray(data.highlights) ? data.highlights : [];
   const byCategory = data.byCategory && typeof data.byCategory === 'object' ? data.byCategory : {};
   const otherTopArticles = Array.isArray(data.otherTopArticles) ? data.otherTopArticles : [];
 
-  let text = `*📰 每日科技阅读 (${data.date})*\n\n`;
-  text += `*💡 今日建议*\n${data.dailyAdvice}\n\n`;
-  if (qualityText) {
-    text += `*🧪 质量闸门*\n${qualityText}\n\n`;
-  }
-  text += `*⭐ 深度推荐*\n`;
+  const cats = data.summary.categories || {};
+  const catParts = CATEGORY_KEYS.filter(k => cats[k] > 0).map(k => `${k}: ${cats[k]}`);
+  const statsText = `共 ${data.summary.totalArticles} 篇文章${catParts.length > 0 ? ' | ' + catParts.join(' | ') : ''}`;
 
-  highlights.forEach(h => {
-    text += `*${h.rank}.* ${h.title}\n`;
-    text += `${h.link}\n`;
-    text += `_📰 ${h.source} · ${h.category}_\n`;
-    text += `\`${h.reason}\`\n\n`;
-    if (h.summary) text += `摘要: ${h.summary}\n`;
-    if (h.action) text += `行动: ${h.action}\n`;
-    if (h.risk) text += `风险: ${h.risk}\n\n`;
-  });
-
-  text += `*📊 分类速览*\n`;
-  Object.entries(byCategory).forEach(([category, articles]) => {
-    if (articles.length === 0) return;
-    text += `\n*${category} (${articles.length}篇)*\n`;
-    articles.slice(0, 3).forEach((a, idx) => {
-      text += `${idx + 1}. ${a.title}\n${a.link}\n`;
-    });
-    if (articles.length > 3) {
-      text += `...还有 ${articles.length - 3} 篇\n`;
-    }
-  });
-
-  if (otherTopArticles.length > 0) {
-    text += `\n*📌 次级推荐 (${otherTopArticles.length}篇)*\n`;
-    otherTopArticles.slice(0, 5).forEach((a, idx) => {
-      text += `${idx + 1}. ${a.title}\n${a.link}\n`;
-    });
-  }
-
-  text += `\n_生成于 ${data.metadata.generatedAt}_`;
-
-  const messages = splitMessage(text, DEFAULT_WHATSAPP_MAX_LENGTH);
-  return {
-    messaging_product: "whatsapp",
-    messages: messages.map(message => ({
-      type: "text",
-      text: {
-        preview_url: true,
-        body: message
-      }
-    }))
-  };
-}
-
-/**
- * 格式化邮件 HTML
- */
-function formatEmailHtml(rawData) {
-  const data = normalizeSummaryData(rawData);
-  const qualityText = getQualityGateText(data);
-  const highlights = Array.isArray(data.highlights) ? data.highlights : [];
-  const byCategory = data.byCategory && typeof data.byCategory === 'object' ? data.byCategory : {};
-  const otherTopArticles = Array.isArray(data.otherTopArticles) ? data.otherTopArticles : [];
-  let html = EMAIL_HTML_TEMPLATE;
-
-  // 替换简单变量
-  html = html.replace(/\{\{(\w+)\}\}/g, (match, key) => {
-    if (key === 'highlights' || key === 'byCategory' || key === 'summary') return match;
-    return data[key] !== undefined ? data[key] : match;
-  });
-
-  // 处理可选字段：趋势洞察（深度风格）
-  if (data.trendInsight) {
-    html = html.replace(/\{\{trendInsight\}\}/, `<div class="trend-insight"><strong>📊 趋势洞察:</strong> ${data.trendInsight}</div>`);
-  } else {
-    html = html.replace(/\{\{trendInsight\}\}/, '');
-  }
-
-  // 处理可选字段：市场趋势（商业风格）
-  if (data.marketTrend) {
-    html = html.replace(/\{\{marketTrend\}\}/, `<div class="market-trend"><strong>💹 市场趋势:</strong> ${data.marketTrend}</div>`);
-  } else {
-    html = html.replace(/\{\{marketTrend\}\}/, '');
-  }
-
-  if (qualityText) {
-    const qualityHtml = `<div class="stats"><strong>🧪 质量闸门</strong><br>${qualityText}</div>`;
-    html = html.replace(/(<div class="advice">[\s\S]*?<\/div>)/, `$1${qualityHtml}`);
-  }
-
-  // 替换 summary
-  html = html.replace(/\{\{summary\.totalArticles\}\}/g, data.summary.totalArticles);
-  html = html.replace(/\{\{summary\.categories\.编程\}\}/g, data.summary.categories?.编程 || 0);
-  html = html.replace(/\{\{summary\.categories\.AI\}\}/g, data.summary.categories?.AI || 0);
-  html = html.replace(/\{\{summary\.categories\.系统\}\}/g, data.summary.categories?.系统 || 0);
-  html = html.replace(/\{\{summary\.categories\.硬件\}\}/g, data.summary.categories?.硬件 || 0);
-  html = html.replace(/\{\{summary\.categories\.安全\}\}/g, data.summary.categories?.安全 || 0);
-  html = html.replace(/\{\{summary\.categories\.创业\}\}/g, data.summary.categories?.创业 || 0);
-  html = html.replace(/\{\{summary\.categories\.综合\}\}/g, data.summary.categories?.综合 || 0);
-
-  // 替换 highlights
   const highlightsHtml = highlights.map(h => {
-    // 深度风格的额外字段
-    const audienceHtml = h.audience ? `<div class="audience">👤 适合: ${h.audience}</div>` : '';
-    const readTimeHtml = h.readTime ? `<div class="readtime">⏱️ ${h.readTime}</div>` : '';
-    // 商业风格的额外字段
-    const impactHtml = h.impact ? `<div class="impact">📈 影响: ${h.impact}</div>` : '';
-    
-    const deepSummaryHtml = h.summary ? `<div class="oneliner">📝 ${h.summary}</div>` : '';
+    const summaryHtml = h.summary ? `<p class="rsd-summary">${h.summary}</p>` : '';
     const keyPointsHtml = Array.isArray(h.keyPoints) && h.keyPoints.length > 0
-      ? `<ul class="oneliner">${h.keyPoints.slice(0, 3).map(item => `<li>${item}</li>`).join('')}</ul>`
+      ? `<ul class="rsd-keypoints">${h.keyPoints.map(k => `<li>${k}</li>`).join('')}</ul>`
       : '';
-    const actionHtml = h.action ? `<div class="oneliner">✅ ${h.action}</div>` : '';
-    const riskHtml = h.risk ? `<div class="oneliner">⚠️ ${h.risk}</div>` : '';
-
+    const actionHtml = h.action ? `<p class="rsd-action">✅ ${h.action}</p>` : '';
+    const riskHtml = h.risk ? `<p class="rsd-risk">⚠️ ${h.risk}</p>` : '';
     return `
-    <div class="highlight">
-      <div class="highlight-title">
-        <strong>#${h.rank}</strong> <a href="${h.link}">${h.title}</a>
-      </div>
-      <div class="source">📰 ${h.source} · ${h.category}</div>
-      <div class="reason">💡 ${h.reason}</div>
-      ${deepSummaryHtml}
-      ${keyPointsHtml}
-      ${actionHtml}
-      ${riskHtml}
-      ${audienceHtml}
-      ${readTimeHtml}
-      ${impactHtml}
-    </div>
-  `}).join('');
-  html = html.replace(/\{\{#each highlights\}\}[\s\S]*?\{\{\/each\}\}/, highlightsHtml);
+    <article class="rsd-highlight">
+      <h3 class="rsd-highlight-title"><a href="${h.link}">${h.rank}. ${h.title}</a></h3>
+      <p class="rsd-meta">📰 ${h.source} · <span class="rsd-category">${h.category}</span></p>
+      <p class="rsd-reason">💡 ${h.reason}</p>
+      ${summaryHtml}${keyPointsHtml}${actionHtml}${riskHtml}
+    </article>`;
+  }).join('\n');
 
-  // 替换 byCategory
   const categoriesHtml = Object.entries(byCategory).map(([category, articles]) => {
     if (articles.length === 0) return '';
-    const articlesHtml = articles.map(a => {
-      // 深度风格的额外字段
-      const keyQuoteHtml = a.keyQuote ? `<div class="keyquote">"${a.keyQuote}"</div>` : '';
-      // 商业风格的额外字段
-      const impactHtml = a.impact ? `<div class="impact">📈 ${a.impact}</div>` : '';
-      
-      return `
-      <div class="article">
-        <div class="article-title"><a href="${a.link}">${a.title}</a></div>
-        <div class="source">📰 ${a.source}</div>
-        <div class="oneliner">${a.oneLiner}</div>
-        ${keyQuoteHtml}
-        ${impactHtml}
-      </div>
-    `}).join('');
+    const articlesHtml = articles.map(a => `
+      <li class="rsd-article">
+        <a href="${a.link}">${a.title}</a>
+        <span class="rsd-meta"> — ${a.source}</span>
+        <p class="rsd-oneliner">${a.oneLiner}</p>
+      </li>`).join('');
     return `
-      <div class="category">
-        <h3>${category} (${articles.length}篇)</h3>
-        ${articlesHtml}
-      </div>
-    `;
-  }).join('');
-  html = html.replace(/\{\{#each byCategory\}\}[\s\S]*?\{\{\/each\}\}/, categoriesHtml);
+    <section class="rsd-category-section">
+      <h3 class="rsd-category-title">${category} <span class="rsd-count">(${articles.length}篇)</span></h3>
+      <ul class="rsd-article-list">${articlesHtml}</ul>
+    </section>`;
+  }).join('\n');
 
   const otherTopHtml = otherTopArticles.length > 0
     ? `
-      <div class="category">
-        <h3>📌 次级推荐 (${otherTopArticles.length}篇)</h3>
-        ${otherTopArticles.slice(0, 10).map((a, idx) => `
-        <div class="article">
-          <div class="article-title"><a href="${a.link}">${idx + 1}. ${a.title}</a></div>
-          <div class="source">📰 ${a.source}${a.score !== undefined ? ` · Score: ${a.score}` : ''}</div>
-        </div>`).join('')}
-      </div>
-    `
+    <section class="rsd-other-top">
+      <h2>📌 次级推荐 <span class="rsd-count">(${otherTopArticles.length}篇)</span></h2>
+      <ol class="rsd-article-list">
+        ${otherTopArticles.slice(0, 10).map(a => `
+        <li class="rsd-article">
+          <a href="${a.link}">${a.title}</a>
+          <span class="rsd-meta"> — ${a.source}${a.score !== undefined ? ` · Score: ${a.score}` : ''}</span>
+        </li>`).join('')}
+      </ol>
+    </section>`
     : '';
-  html = html.replace(/\{\{otherTopSection\}\}/g, otherTopHtml);
-  html = html.replace(/\{\{metadata\.generatedAt\}\}/g, data.metadata.generatedAt || '');
 
-  if (data.unsubscribeLink) {
-    html = html.replace(/\{\{unsubscribeLink\}\}/g, data.unsubscribeLink);
-  } else {
-    html = html.replace(/<a href="\{\{unsubscribeLink\}\}">取消订阅<\/a>/g, '');
-  }
+  const qualityHtml = qualityText
+    ? `<p class="rsd-quality-gate">🧪 质量闸门：${qualityText}</p>`
+    : '';
 
-  return html;
+  return `<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>每日科技阅读 (${data.date})</title>
+  <style>
+    /* ── CSS 自定义属性：使用方可覆盖 ── */
+    :root {
+      --rsd-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      --rsd-color-bg: #f7f7f8;
+      --rsd-color-surface: #ffffff;
+      --rsd-color-primary: #0066cc;
+      --rsd-color-text: #1a1a1a;
+      --rsd-color-text-muted: #666;
+      --rsd-color-accent: #e65100;
+      --rsd-color-highlight-bg: #fff8e1;
+      --rsd-color-highlight-border: #ffe082;
+      --rsd-color-action: #2e7d32;
+      --rsd-color-risk: #c62828;
+      --rsd-radius: 8px;
+      --rsd-max-width: 680px;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --rsd-color-bg: #111;
+        --rsd-color-surface: #1e1e1e;
+        --rsd-color-primary: #66b3ff;
+        --rsd-color-text: #e0e0e0;
+        --rsd-color-text-muted: #999;
+        --rsd-color-accent: #ff9966;
+        --rsd-color-highlight-bg: #2a2000;
+        --rsd-color-highlight-border: #665500;
+        --rsd-color-action: #66bb6a;
+        --rsd-color-risk: #ef9a9a;
+      }
+    }
+
+    /* ── 基础 ── */
+    body {
+      font-family: var(--rsd-font);
+      background: var(--rsd-color-bg);
+      color: var(--rsd-color-text);
+      line-height: 1.65;
+      margin: 0;
+      padding: 24px 16px;
+    }
+    .rsd-container {
+      max-width: var(--rsd-max-width);
+      margin: 0 auto;
+      background: var(--rsd-color-surface);
+      border-radius: var(--rsd-radius);
+      padding: 32px;
+      box-shadow: 0 2px 12px rgba(0,0,0,.08);
+    }
+    a { color: var(--rsd-color-primary); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    h1 { font-size: 1.5rem; margin: 0 0 8px; border-bottom: 3px solid var(--rsd-color-primary); padding-bottom: 12px; }
+    h2 { font-size: 1.15rem; margin: 32px 0 12px; color: var(--rsd-color-primary); }
+    h3 { font-size: 1rem; margin: 0 0 6px; }
+    ul, ol { padding-left: 1.4em; margin: 8px 0; }
+    li { margin: 4px 0; }
+
+    /* ── 统计 & 建议 ── */
+    .rsd-stats { font-size: .85rem; color: var(--rsd-color-text-muted); margin-bottom: 16px; }
+    .rsd-advice { border-left: 4px solid var(--rsd-color-primary); padding: 10px 16px; margin: 16px 0; font-style: italic; background: color-mix(in srgb, var(--rsd-color-primary) 8%, transparent); border-radius: 0 var(--rsd-radius) var(--rsd-radius) 0; }
+    .rsd-quality-gate { font-size: .82rem; color: var(--rsd-color-text-muted); margin: 8px 0 16px; }
+
+    /* ── 深度推荐 ── */
+    .rsd-highlight { background: var(--rsd-color-highlight-bg); border: 1px solid var(--rsd-color-highlight-border); border-radius: var(--rsd-radius); padding: 16px 20px; margin: 12px 0; }
+    .rsd-highlight-title a { color: var(--rsd-color-accent); font-size: 1rem; font-weight: 600; }
+    .rsd-meta { font-size: .82rem; color: var(--rsd-color-text-muted); margin: 4px 0; }
+    .rsd-category { font-weight: 500; }
+    .rsd-reason { color: var(--rsd-color-accent); font-size: .9rem; font-weight: 500; margin: 6px 0; }
+    .rsd-summary { font-size: .9rem; margin: 6px 0; }
+    .rsd-keypoints { font-size: .88rem; margin: 6px 0; }
+    .rsd-action { font-size: .88rem; color: var(--rsd-color-action); margin: 4px 0; }
+    .rsd-risk { font-size: .88rem; color: var(--rsd-color-risk); margin: 4px 0; }
+
+    /* ── 分类速览 ── */
+    .rsd-category-section { margin: 20px 0; }
+    .rsd-category-title { font-size: 1rem; color: var(--rsd-color-primary); border-bottom: 1px solid color-mix(in srgb, var(--rsd-color-primary) 20%, transparent); padding-bottom: 6px; margin-bottom: 10px; }
+    .rsd-count { font-weight: normal; font-size: .85rem; color: var(--rsd-color-text-muted); }
+    .rsd-article-list { list-style: none; padding: 0; }
+    .rsd-article { padding: 8px 0; border-bottom: 1px solid color-mix(in srgb, var(--rsd-color-text) 8%, transparent); }
+    .rsd-article:last-child { border-bottom: none; }
+    .rsd-oneliner { font-size: .85rem; color: var(--rsd-color-text-muted); margin: 2px 0 0; }
+
+    /* ── 页脚 ── */
+    .rsd-footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid color-mix(in srgb, var(--rsd-color-text) 12%, transparent); font-size: .8rem; color: var(--rsd-color-text-muted); text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="rsd-container">
+    <header>
+      <h1>📰 每日科技阅读 (${data.date})</h1>
+      <p class="rsd-stats">${statsText}</p>
+    </header>
+
+    <div class="rsd-advice">${data.dailyAdvice}</div>
+    ${qualityHtml}
+
+    <section class="rsd-highlights">
+      <h2>⭐ 深度推荐</h2>
+      ${highlightsHtml}
+    </section>
+
+    <section class="rsd-categories">
+      ${categoriesHtml}
+    </section>
+
+    ${otherTopHtml}
+
+    <footer class="rsd-footer">
+      由 RSS Digest 生成于 ${data.metadata.generatedAt}
+    </footer>
+  </div>
+</body>
+</html>`;
 }
 
 /**
- * 格式化邮件纯文本
+ * 输出 JSON 格式（归一化后的结构化数据）
  */
-function formatEmailText(rawData) {
-  const data = normalizeSummaryData(rawData);
-  const qualityText = getQualityGateText(data);
-  const highlights = Array.isArray(data.highlights) ? data.highlights : [];
-  const byCategory = data.byCategory && typeof data.byCategory === 'object' ? data.byCategory : {};
-  const otherTopArticles = Array.isArray(data.otherTopArticles) ? data.otherTopArticles : [];
-  let text = EMAIL_TEXT_TEMPLATE;
-
-  // 替换简单变量
-  text = text.replace(/\{\{(\w+)\}\}/g, (match, key) => {
-    if (key === 'highlights' || key === 'byCategory') return match;
-    return data[key] !== undefined ? data[key] : match;
-  });
-
-  // 替换 highlights
-  const highlightsText = highlights.map(h => {
-    const keyPointsText = Array.isArray(h.keyPoints) && h.keyPoints.length > 0
-      ? `   要点:\n${h.keyPoints.slice(0, 3).map(k => `   - ${k}`).join('\n')}\n`
-      : '';
-    const summaryText = h.summary ? `   摘要: ${h.summary}\n` : '';
-    const actionText = h.action ? `   行动: ${h.action}\n` : '';
-    const riskText = h.risk ? `   风险: ${h.risk}\n` : '';
-    return `#${h.rank}. ${h.title}\n   链接: ${h.link}\n   来源: ${h.source} · ${h.category}\n   推荐: ${h.reason}\n${summaryText}${keyPointsText}${actionText}${riskText}`;
-  }).join('\n');
-  text = text.replace(/\{\{#each highlights\}\}[\s\S]*?\{\{\/each\}\}/, highlightsText);
-
-  // 替换 byCategory
-  const categoriesText = Object.entries(byCategory).map(([category, articles]) => {
-    if (articles.length === 0) return '';
-    const articlesText = articles.map(a =>
-      `· ${a.title}\n  ${a.link}\n  ${a.oneLiner} (${a.source})\n`
-    ).join('\n');
-    return `${category} (${articles.length}篇)\n\n${articlesText}`;
-  }).join('\n');
-  text = text.replace(/\{\{#each byCategory\}\}[\s\S]*?\{\{\/each\}\}/, categoriesText);
-
-  if (qualityText) {
-    text = text.replace(
-      /━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n⭐ 深度推荐/,
-      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n🧪 质量闸门\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n${qualityText}\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n⭐ 深度推荐`
-    );
-  }
-
-  const otherTopText = otherTopArticles.length > 0
-    ? `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📌 次级推荐 (${otherTopArticles.length}篇)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n${otherTopArticles.slice(0, 10).map((a, idx) => `${idx + 1}. ${a.title}\n   ${a.link}\n   ${a.source}${a.score !== undefined ? ` · Score: ${a.score}` : ''}\n`).join('\n')}\n`
-    : '';
-  text = text.replace(/\{\{otherTopSection\}\}/g, otherTopText);
-  text = text.replace(/\{\{metadata\.generatedAt\}\}/g, data.metadata.generatedAt || '');
-
-  return text;
+function formatJson(rawData) {
+  return normalizeSummaryData(rawData);
 }
 
 // ==================== 主函数 ====================
 
-/**
- * 主入口函数
- *
- * @param {Object} params - 输入参数
- * @param {Object} params.summaryData - AI 摘要的输出数据
- * @param {string} params.channel - 输出渠道 (email/feishu/dingtalk/wecom/whatsapp/webhook)
- * @returns {Object} 格式化后的输出
- */
 async function main({ params }) {
-  const { summaryData, channel = 'email' } = params || {};
+  const { summaryData, format = 'md' } = params || {};
 
   if (!summaryData) {
     return { error: 'Missing summaryData' };
   }
 
-  const normalizedSummary = normalizeSummaryData(summaryData);
   let result;
-
-  switch (channel) {
-    case 'email':
-      result = {
-        html: formatEmailHtml(normalizedSummary),
-        text: formatEmailText(normalizedSummary),
-        subject: `📰 每日科技阅读 (${normalizedSummary.date})`
-      };
+  switch (format) {
+    case 'md':
+    case 'markdown':
+      result = formatMarkdown(summaryData);
       break;
-
-    case 'feishu':
-      result = formatFeishuCard(normalizedSummary);
+    case 'html':
+      result = formatHtml(summaryData);
       break;
-
-    case 'dingtalk':
-      result = formatDingtalk(normalizedSummary);
+    case 'json':
+      result = formatJson(summaryData);
       break;
-
-    case 'wecom':
-    case 'wechat-work':
-      result = formatWecom(normalizedSummary);
-      break;
-
-    case 'whatsapp':
-      result = formatWhatsApp(normalizedSummary);
-      break;
-
-    case 'webhook':
-      result = {
-        ...WEBHOOK_TEMPLATE,
-        timestamp: normalizedSummary.metadata.generatedAt,
-        data: normalizedSummary
-      };
-      break;
-
     default:
-      return { error: `Unknown channel: ${channel}` };
+      return { error: `Unknown format: ${format}. Supported: md, html, json` };
   }
 
   return { result };
@@ -1364,14 +546,9 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     main,
     normalizeSummaryData,
-    formatEmailHtml,
-    formatEmailText,
-    formatFeishuCard,
-    formatDingtalk,
-    formatWecom,
-    formatWhatsApp,
-    splitMessage,
-    splitMessageByBytes
+    formatMarkdown,
+    formatHtml,
+    formatJson
   };
 }
 
@@ -1386,18 +563,17 @@ if (require.main === module) {
       throw new Error('Missing required value: input');
     }
     const inputFile = path.resolve(args.input);
-    const channel = args.channel || 'email';
+    const format = args.format || 'md';
     const outFile = args.outFile ? path.resolve(args.outFile) : null;
     const summaryData = JSON.parse(fs.readFileSync(inputFile, 'utf8'));
 
-    const { result } = await main({
-      params: {
-        summaryData,
-        channel
-      }
-    });
+    const { result, error } = await main({ params: { summaryData, format } });
+    if (error) {
+      process.stderr.write(`${error}\n`);
+      process.exit(1);
+    }
 
-    const outputText = `${JSON.stringify(result, null, 2)}\n`;
+    const outputText = typeof result === 'string' ? result : `${JSON.stringify(result, null, 2)}\n`;
     if (outFile) {
       fs.mkdirSync(path.dirname(outFile), { recursive: true });
       fs.writeFileSync(outFile, outputText);

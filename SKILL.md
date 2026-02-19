@@ -2,41 +2,39 @@
 name: ak-92rss-digest
 description: |
   Agent 驱动的 RSS 每日摘要 Skill。脚本只做抓取、prompt 组装、摘要校验、
-  格式化与投递；摘要生成由 Agent 本身完成。
-version: 2.3.2
+  格式化与输出；摘要生成由 Agent 本身完成。
+version: 3.0.0
 ---
 
 # RSS Digest Skill (Agent Mode)
 
 ## 一句话说明
 
-这是一个“**Agent 编排 + 本地脚本执行**”的 RSS 摘要流水线：  
-基础模式：`fetch -> prepare-prompt -> Agent summarize -> validate -> format -> deliver(optional)`  
-精读增强模式：`fetch -> fetch-full -> prepare-deep-read -> Agent deep-read -> prepare-prompt(tier2) -> Agent tier2 -> assemble -> format -> deliver(optional)`。
+这是一个"**Agent 编排 + 本地脚本执行**"的 RSS 摘要流水线：
+统一流程：`fetch -> fetch-full(tier1) -> prepare-deep-read -> Agent deep-read(tier1) -> prepare-prompt(tier2) -> Agent tier2 -> assemble -> validate -> format`。
+说明：Tier1 精读是必经步骤，不因模板（daily/quick/tech-dev/product/executive）而省略。
 
 ## 使用原则
 
-1. Agent 不调用外部 LLM API，直接在 Step 3 生成摘要 JSON。
+1. Agent 不调用外部 LLM API，按流程完成 Tier1 精读和 Tier2 汇总 JSON。
 2. 每一步都要落盘中间文件，便于回放和排错。
-3. 先校验再格式化，避免不合规 JSON 进入渠道层。
-4. 投递前优先 `dryRun` 验证 payload。
+3. 先校验再格式化，避免不合规 JSON 进入输出层。
+4. 生成"详细摘要/重点推荐"页面时，展示层必须以 `tier1` 为主数据源；`highlights` 仅作兼容字段，不可替代 `tier1`。
 
 ## 标准目录约定
 
 建议统一使用 `tmp/` 作为中间产物目录：
 
 - `tmp/fetch.json`
-- `tmp/fetch-enriched.json`（精读增强模式）
-- `tmp/deep-read-prompts.json`（精读增强模式）
-- `tmp/deep-read-results.json`（精读增强模式）
-- `tmp/prompt-tier2.txt`（精读增强模式）
-- `tmp/tier2-raw.json`（精读增强模式）
-- `tmp/prompt.txt`
-- `tmp/summary-raw.json`
+- `tmp/fetch-enriched.json`
+- `tmp/deep-read-prompts.json`
+- `tmp/deep-read-results.json`
+- `tmp/prompt-tier2.txt`
+- `tmp/tier2-raw.json`
 - `tmp/summary.json`
-- `tmp/formatted-<channel>.json`
+- `tmp/output.md` / `tmp/output.html` / `tmp/output.json`
 
-## 标准执行流程（6 步）
+## 核心执行流程（Tier1 精读必经）
 
 ### Step 1: 抓取与排序 (`rss-fetcher.js`)
 
@@ -73,11 +71,81 @@ node scripts/rss-fetcher.js \
 
 ---
 
-### Step 2: 组装摘要 Prompt (`prepare-prompt.js`)
+### Step 2: 回源抓取 Tier1 全文 (`full-content-fetcher.js`)
 
 **输入**
 
 - `tmp/fetch.json`
+
+**命令**
+
+```bash
+node scripts/full-content-fetcher.js \
+  --fetchFile tmp/fetch.json \
+  --outFile tmp/fetch-enriched.json
+```
+
+**输出**
+
+- `tmp/fetch-enriched.json`
+
+**通过条件**
+
+- `topArticles` 中每篇都有 `fullContent`（若部分失败，需在后续精读中显式标注信息不足）
+
+---
+
+### Step 3: 生成逐篇精读 Prompt (`prepare-deep-read.js`)
+
+**输入**
+
+- `tmp/fetch-enriched.json`
+- `templates/prompt-deep-read.md`
+
+**命令**
+
+```bash
+node scripts/prepare-deep-read.js \
+  --fetchFile tmp/fetch-enriched.json \
+  --template daily \
+  --outFile tmp/deep-read-prompts.json
+```
+
+**输出**
+
+- `tmp/deep-read-prompts.json`
+
+**通过条件**
+
+- `prompts` 条数与 `topArticles` 条数一致（Tier1 每篇都必须精读）
+
+---
+
+### Step 4: Agent 执行 Tier1 逐篇精读（核心）
+
+**输入**
+
+- `tmp/deep-read-prompts.json`
+
+**Agent 指令（建议原样执行）**
+
+1. 逐条读取 `prompts[]`
+2. 对每篇文章输出合法 JSON（`summary`/`keyPoints`/`action`/`risk`/`category` 等）
+3. 聚合写入 `tmp/deep-read-results.json`
+4. 输出条数必须与 Tier1 条数一致，不允许跳篇
+
+**通过条件**
+
+- `tmp/deep-read-results.json` 可解析，且覆盖所有 Tier1 文章
+
+---
+
+### Step 5: 组装 Tier2 Prompt (`prepare-prompt.js`)
+
+**输入**
+
+- `tmp/fetch.json`
+- `tmp/deep-read-results.json`
 - `templates/prompt-summarize-tiered.md`
 
 **命令**
@@ -86,100 +154,68 @@ node scripts/rss-fetcher.js \
 node scripts/prepare-prompt.js \
   --fetchFile tmp/fetch.json \
   --template templates/prompt-summarize-tiered.md \
-  --outFile tmp/prompt.txt
+  --deepReadResults tmp/deep-read-results.json \
+  --outFile tmp/prompt-tier2.txt
 ```
 
 **输出**
 
-- `tmp/prompt.txt`
+- `tmp/prompt-tier2.txt`
 
 **通过条件**
 
 - 文件存在且非空
-
-**失败处理**
-
-- 检查 `--fetchFile` 路径
-- 检查模板文件是否存在
+- 未传 `--deepReadResults` 时，脚本会直接报错（用于强制 Tier1 精读）
 
 ---
 
-## 精读增强流程（9 步，可选）
+### Step 6: Agent 生成 Tier2 JSON
 
-当需要 Top 文章“回源全文 + 单篇精读”时，按下面步骤执行：
+**输入**
 
-1. `rss-fetcher.js` 生成 `tmp/fetch.json`
-2. `full-content-fetcher.js` 回源抓取 Top 全文到 `tmp/fetch-enriched.json`
-3. `prepare-deep-read.js` 生成逐篇精读 prompts（`tmp/deep-read-prompts.json`）
-4. Agent 逐篇执行精读 prompt，产出 `tmp/deep-read-results.json`
-5. `prepare-prompt.js --deepReadResults ...` 仅组装 Tier2 prompt（`tmp/prompt-tier2.txt`）
-6. Agent 生成 Tier2 结果（`tmp/tier2-raw.json`）
-7. `assemble-summary.js` 合并精读 + Tier2，输出 `tmp/summary.json`
-8. `output-formatter.js` 渠道格式化
-9. `delivery.js`（可选）投递
+- `tmp/prompt-tier2.txt`
 
-推荐命令：
+**Agent 指令**
+
+1. 读取 `tmp/prompt-tier2.txt`
+2. 输出 Tier2 结果到 `tmp/tier2-raw.json`
+3. 仅外说明
+
+**通过条件**
+
+- `tmp/tier2-raw.json` 能被 JSON 解析
+
+---
+
+### Step 7: 合并 Tier1 精读 + Tier2 (`assemble-summary.js`)
+
+**命令**
 
 ```bash
-node scripts/rss-fetcher.js --hours 24 --topN 7 --otherTopN 20 --outFile tmp/fetch.json
-node scripts/full-content-fetcher.js --fetchFile tmp/fetch.json --outFile tmp/fetch-enriched.json
-node scripts/prepare-deep-read.js --fetchFile tmp/fetch-enriched.json --template daily --outFile tmp/deep-read-prompts.json
-# Agent: 读取 tmp/deep-read-prompts.json，输出 tmp/deep-read-results.json
-node scripts/prepare-prompt.js --fetchFile tmp/fetch.json --template templates/prompt-summarize-tiered.md --deepReadResults tmp/deep-read-results.json --outFile tmp/prompt-tier2.txt
-# Agent: 读取 tmp/prompt-tier2.txt，输出 tmp/tier2-raw.json
-node scripts/assemble-summary.js --deepReadResults tmp/deep-read-results.json --tier2Raw tmp/tier2-raw.json --fetchFile tmp/fetch.json --outFile tmp/summary.json
-node scripts/output-formatter.js --input tmp/summary.json --channel email --outFile tmp/formatted-email.json
+node scripts/assemble-summary.js \
+  --deepReadResults tmp/deep-read-results.json \
+  --tier2Raw tmp/tier2-raw.json \
+  --fetchFile tmp/fetch.json \
+  --outFile tmp/summary.json
 ```
 
 ---
 
-### Step 3: Agent 生成摘要 JSON（核心）
+### Step 8: 校验与归一化 (`validate-summary.js`)
 
 **输入**
 
-- `tmp/prompt.txt`
-
-**Agent 指令（建议原样执行）**
-
-1. 读取 `tmp/prompt.txt`
-2. 严格按照模板要求生成 JSON
-3. 仅输出 JSON 内容并写入 `tmp/summary-raw.json`
-4. 不要输出代码块包裹符号
-
-**推荐结构**
-
-- `date`
-- `tier1[]`（深度摘要：`summary`/`keyPoints`/`action`/`risk`）
-- `tier2[]`（一句话速览：`oneLiner`）
-- 可选：`dailyAdvice`、`metadata`
-
-**通过条件**
-
-- `tmp/summary-raw.json` 能被 JSON 解析
-
-**失败处理**
-
-- 若输出混入说明文字，保留原文件，交给 Step 4 自动提取 JSON
-
----
-
-### Step 4: 校验与归一化 (`validate-summary.js`)
-
-**输入**
-
-- `tmp/summary-raw.json`
+- `tmp/summary.json`（可原地覆盖，补齐质量闸门）
 - `tmp/fetch.json`
 
 **命令**
 
 ```bash
 node scripts/validate-summary.js \
-  --input tmp/summary-raw.json \
+  --input tmp/summary.json \
   --fetchFile tmp/fetch.json \
   --outFile tmp/summary.json
-```
-
-**输出**
+``输出**
 
 - `tmp/summary.json`
 - 关键字段：`tier1`、`tier2`、`highlights`、`byCategory`、`metadata.qualityGates`
@@ -190,95 +226,85 @@ node scripts/validate-summary.js \
 
 **失败处理**
 
-- 若报 `Input does not contain valid JSON object`，回到 Step 3 重新生成
+- 若报 `Input does not contain valid JSON object`，优先检查 `deep-read-results` / `tier2-raw` 的 JSON 合法性
 
 ---
 
-### Step 5: 格式化输出 (`output-formatter.js`)
+### Step 9: 格式化输出 (`output-formatter.js`)
 
 **输入**
 
 - `tmp/summary.json`
-- 渠道参数 `--channel`
+- 格式参数 `--format`
 
-**命令（示例）**
+**命令**
 
 ```bash
+# Markdown（默认，通用文本）
 node scripts/output-formatter.js \
   --input tmp/summary.json \
-  --channel email \
-  --outFile tmp/formatted-email.json
+  --format md \
+  --outFile tmp/output.md
+
+# HTML（内置最佳实践样式，CSS 变量可覆盖）
+node scripts/output-formatter.js \
+  --input tmp/summary.json \
+  --format html \
+  --outFile tmp/output.html
+
+# JSON（归一化结构，供程序消费）
+node scripts/output-formatter.js \
+  --input tmp/summary.json \
+  --format json \
+  --outFile tmp/output.json
 ```
 
-**输出**
+**支持格式**
 
-- `tmp/formatted-email.json`（或其他渠道格式）
-
-**支持渠道**
-
-- `email`
-- `feishu`
-- `dingtalk`
-- `wecom` / `wechat-work`
-- `whatsapp`
-- `webhook`
+- `md` / `markdown`：Markdown 纯文本
+- `html`：完整 HTML，CSS 自定义属性（`--rsd-*`）可覆盖
+- `json`：归一化 JSON 对象
 
 **通过条件**
 
-- 输出文件存在，且包含渠道所需核心字段
+- 输出文件存在且非空
 
 ---
 
-### Step 6: 可选投递 (`delivery.js`)
+### Step 10: 可选投递
 
-**命令（示例）**
+投递能力由独立 skill `universal-deliver` 负责，本项目不内置投递逻辑。将 `tmp/output.*` 传给 `universal-deliver` 即可。
 
-```bash
-node scripts/delivery.js \
-  --input tmp/formatted-email.json \
-  --channel email \
-  --dryRun
-```
+---
 
-**支持渠道**
+## 常用剧本
 
-- `email`
-- `feishu`
-- `dingtalk`
-- `wecom` / `wechat-work`
-- `whatsapp`
-
-**执行策略**
-
-1. 先 `dryRun` 验证配置与 payload
-2. 验证通过后再真实投递
-3. 失败按渠道重试与排错
-
-**重要**
-
-- 首次配置渠道时，优先阅读 `reference/GUIDE-delivery-setup.md`
-- 投递格式说明见 `reference/GUIDE-delivery.md`
-
-## 三个常用剧本
-
-### 剧本 A：日常完整版（Email）
+### 剧本 A：日常完整版
 
 ```bash
 node scripts/rss-fetcher.js --hours 24 --topN 7 --otherTopN 20 --outFile tmp/fetch.json
-node scripts/prepare-prompt.js --fetchFile tmp/fetch.json --template templates/prompt-summarize-tiered.md --outFile tmp/prompt.txt
-# Agent: 读取 tmp/prompt.txt，输出 tmp/summary-raw.json
-node scripts/validate-summary.js --input tmp/summary-raw.json --fetchFile tmp/fetch.json --outFile tmp/summary.json
-node scripts/output-formatter.js --input tmp/summary.json --channel email --outFile tmp/formatted-email.json
+node scripts/full-content-fetcher.js --fetchFile tmp/fetch.json --outFile tmp/fetch-enriched.json
+node scripts/prepare-deep-read.js --fetchFile tmp/fetch-enriched.json --template daily --outFile tmp/deep-read-prompts.json
+# Agent: 读取 tmp/deep-read-prompts.json，输出 tmp/deep-read-results.json
+node scripts/prepare-prompt.js --fetchFile tmp/fetch.json --template templates/prompt-summarize-tiered.md --deepReadResults tmp/deep-read-results.json --outFile tmp/prompt-tier2.txt
+# Agent: 读取 tmp/prompt-tier2.txt，输出 tmp/tier2-raw.json
+node scripts/assemble-summary.js --deepReadResults tmp/deep-read-results.json --tier2Raw tmp/tier2-raw.json --fetchFile tmp/fetch.json --outFile tmp/summary.json
+node scripts/validate-summary.js --input tmp/summary.json --fetchFile tmp/fetch.json --outFile tmp/summary.json
+node scripts/output-formatter.js --input tmp/summary.json --format md --outFile tmp/output.md
 ```
 
-### 剧本 B：中文优先（WeCom）
+### 剧本 B：中文优先
 
 ```bash
-node scripts/rss-fetcher.js --languageFilter zh --cnTier A --topN 5 --otherTopN 15 --outFile tmp/fetch-zh.json
-node scripts/prepare-prompt.js --fetchFile tmp/fetch-zh.json --template templates/prompt-summarize-tiered.md --outFile tmp/prompt-zh.txt
-# Agent: 输出 tmp/summary-raw-zh.json
-node scripts/validate-summary.js --input tmp/summary-raw-zh.json --fetchFile tmp/fetch-zh.json --outFile tmp/summary-zh.json
-node scripts/output-formatter.js --input tmp/summary-zh.json --channel wecom --outFile tmp/formatted-wecom.json
+node scripts/rss-fetcher.js --languageFiltTier A --topN 5 --otherTopN 15 --outFile tmp/fetch-zh.json
+node scripts/full-content-fetcher.js --fetchFile tmp/fetch-zh.json --outFile tmp/fetch-zh-enriched.json
+node scripts/prepare-deep-read.js --fetchFile tmp/fetch-zh-enriched.json --template daily --outFile tmp/deep-read-prompts-zh.json
+# Agent: 输出 tmp/deep-read-results-zh.json
+node scripts/prepare-prompt.js --fetchFile tmp/fetch-zh.json --template templates/prompt-summarize-tiered.md --deepReadResults tmp/deep-read-results-zh.json --outFile tmp/prompt-tier2-zh.txt
+# Agent: 输出 tmp/tier2-raw-zh.json
+node scripts/assemble-summary.js --deepReadResults tmp/deep-read-results-zh.json --tier2Raw tmp/th.json --fetchFile tmp/fetch-zh.json --outFile tmp/summary-zh.json
+node scripts/validate-summary.js --input tmp/summary-zh.json --fetchFile tmp/fetch-zh.json --outFile tmp/summary-zh.json
+node scripts/output-formatter.js --input tmp/summary-zh.json --format html --outFile tmp/output-zh.html
 ```
 
 ### 剧本 C：仅检查源健康
@@ -302,18 +328,16 @@ node scripts/feed-quality-monitor.js
 ## 参考文档
 
 - `reference/GUIDE-technical.md`
-- `reference/GUIDE-delivery.md`
-- `reference/GUIDE-delivery-setup.md`
 - `reference/GUIDE-templates.md`
 - `reference/GUIDE-sources.md`
 
 ## 故障排查速查
 
-1. `Missing required value: fetchFile`  
+1. `Missing required value: fetchFile`
    - 检查参数是否传入 `--fetchFile`
-2. `Input does not contain valid JSON object`  
-   - Step 3 输出格式错误，重新生成 `summary-raw.json`
-3. 渠道拒绝（长度/格式）  
-   - 先降低 `topN/otherTopN`，再调整渠道参数
-4. 源质量下降  
+2. `Input does not contain valid JSON object`
+   - 检查 `tmp/deep-read-results.json` 与 `tmp/tier2-raw.json` 是否为合法 JSON，再重新组装
+3. 输出内容过长
+   - 先降低 `topN/otherTopN`，再重新格式化
+4. 源质量下降
    - 运行 `scripts/feed-quality-monitor.js` 并更新源策略

@@ -14,7 +14,7 @@
 ## 端到端流程
 
 ```text
-RSS 源 -> 抓取与排序 -> Prompt 组装 -> Agent 生成摘要 JSON -> 结构校验与质量修复 -> 渠道格式化
+RSS 源 -> 抓取与排序 -> Prompt 组装 -> Agent 生成摘要 JSON -> 结构校验与质量修复 -> 格式化输出
 ```
 
 说明：Agent 承担摘要生成，脚本层不调用外部 LLM API。
@@ -93,20 +93,21 @@ node scripts/validate-summary.js --input tmp/summary-raw.json --fetchFile tmp/fe
 
 ## 输出格式化（output-formatter）
 
-格式化支持：
+支持三种基础格式：
 
-- `email`
-- `feishu`
-- `dingtalk`
-- `wecom` / `wechat-work`
-- `whatsapp`
-- `webhook`
+- `md`：Markdown 纯文本，可直接阅读或传给任意下游渠道
+- `html`：完整 HTML，内置 CSS 自定义属性（`--rsd-*`）作为最佳实践底线，使用方可覆盖
+- `json`：归一化 JSON 对象，供程序消费或自定义渠道适配
 
 常用命令：
 
 ```bash
-node scripts/output-formatter.js --input tmp/summary.json --channel email --outFile tmp/formatted.json
+node scripts/output-formatter.js --input tmp/summary.json --format md --outFile tmp/output.md
+node scripts/output-formatter.js --input tmp/summary.json --format html --outFile tmp/output.html
+node scripts/output-formatter.js --input tmp/summary.json --format json --outFile tmp/output.json
 ```
+
+渠道适配（email/feishu/dingtalk/wecom 等）由下游 skill（如 `universal-deliver`）负责。
 
 ## Feed 健康监控
 

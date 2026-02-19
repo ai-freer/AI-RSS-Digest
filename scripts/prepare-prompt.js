@@ -20,6 +20,23 @@ const {
   writeTextOutput
 } = require('./cli-utils');
 
+function hasTier1Candidates(fetchData) {
+  return Array.isArray(fetchData?.topArticles) && fetchData.topArticles.length > 0;
+}
+
+function shouldRequireDeepRead(args, fetchData) {
+  // Tier1 deep-read is mandatory for all templates/modes.
+  if (!hasTier1Candidates(fetchData)) return false;
+  return !args.deepReadResults;
+}
+
+function ensureDeepReadRequirement(args, fetchData) {
+  if (!shouldRequireDeepRead(args, fetchData)) return;
+  throw new Error(
+    'Tier1 deep-read is required: please provide --deepReadResults before preparing tier2 prompt.'
+  );
+}
+
 function parseJsonLoose(filePath) {
   const raw = fs.readFileSync(filePath, 'utf8');
   const parsed = extractJson(raw);
@@ -40,6 +57,7 @@ function run() {
   ensureValue(args.fetchFile, 'fetchFile');
 
   const fetchData = readJsonFile(fetchFile);
+  ensureDeepReadRequirement(args, fetchData);
   let promptFetchData = fetchData;
   if (args.deepReadResults) {
     const deepReadPath = path.resolve(args.deepReadResults);
@@ -69,9 +87,19 @@ function run() {
   writeTextOutput(prompt, outFile);
 }
 
-try {
-  run();
-} catch (error) {
-  process.stderr.write(`${String(error.message || error)}\n`);
-  process.exit(1);
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    hasTier1Candidates,
+    shouldRequireDeepRead,
+    ensureDeepReadRequirement
+  };
+}
+
+if (require.main === module) {
+  try {
+    run();
+  } catch (error) {
+    process.stderr.write(`${String(error.message || error)}\n`);
+    process.exit(1);
+  }
 }
