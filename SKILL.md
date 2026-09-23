@@ -41,6 +41,7 @@ version: 3.0.0
 **输入**
 
 - RSS 源配置（内置）
+- 默认包含中文 A 级源（含 AIHOT）；`--includeCN false` 可关闭，`--cnTier ALL` 可加入 B 级
 - 可选参数：时间窗、语言筛选、榜单数量
 
 **命令**
@@ -92,6 +93,7 @@ node scripts/full-content-fetcher.js \
 **通过条件**
 
 - `topArticles` 中每篇都有 `fullContent`（若部分失败，需在后续精读中显式标注信息不足）
+- AIHOT 条目直接使用官方 RSS 内容，不解析其新旧域名的条目网页
 
 ---
 

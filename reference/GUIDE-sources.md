@@ -10,7 +10,7 @@
 
 - `BASE_RSS_FEEDS`：国际/英文主清单
 - `CN_RSS_FEEDS`：中文候选源（分 A/B）
-- `buildFeedList({ includeCN, cnTier })`：按参数构建最终源列表
+- `buildFeedList({ includeCN, cnTier })`：默认包含 A 级中文源，可按参数调整
 
 源清单文档：
 
@@ -39,7 +39,7 @@
 `scripts/rss-fetcher.js` 支持：
 
 - `--tagFilter`：按源标签过滤（逗号分隔）
-- `--includeCN`：是否接入中文源
+- `--includeCN`：是否接入中文源（默认 `true`，可传 `false` 关闭）
 - `--cnTier`：`A` / `B` / `ALL`
 - `--languageFilter`：`all` / `zh` / `global`
 - `--hours`：时间窗口
@@ -59,10 +59,16 @@ node scripts/rss-fetcher.js --languageFilter zh --cnTier A --topN 7 --otherTopN 
 node scripts/rss-fetcher.js --languageFilter global --topN 5 --otherTopN 15 --outFile tmp/fetch-global.json
 ```
 
-混合源：
+混合源（默认基础源 + 中文 A 级）：
 
 ```bash
-node scripts/rss-fetcher.js --includeCN --cnTier ALL --hours 24 --outFile tmp/fetch-mixed.json
+node scripts/rss-fetcher.js --hours 24 --outFile tmp/fetch-mixed.json
+```
+
+混合源（包含中文 A/B 级）：
+
+```bash
+node scripts/rss-fetcher.js --cnTier ALL --hours 24 --outFile tmp/fetch-mixed-all.json
 ```
 
 ## 与后续模块关系

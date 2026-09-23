@@ -11,12 +11,12 @@ const {
   formatHtml,
   formatJson
 } = require('./output-formatter');
-const { extractReadableText } = require('./full-content-fetcher');
+const { extractReadableText, enrichArticle } = require('./full-content-fetcher');
 const { main: prepareDeepReadMain } = require('./prepare-deep-read');
 const { main: assembleSummaryMain } = require('./assemble-summary');
 const { ensureDeepReadRequirement } = require('./prepare-prompt');
 
-function run() {
+async function run() {
   const fetchData = {
     date: '2026-02-15',
     topArticles: [
@@ -229,7 +229,30 @@ function run() {
   assert.strictEqual(normalizedDeepRead.deepRead, true);
   assert.strictEqual(normalizedDeepRead.sourceType, 'deep-read');
 
+  const originalFetch = global.fetch;
+  let webRequests = 0;
+  global.fetch = async () => {
+    webRequests += 1;
+    throw new Error('Unexpected webpage request');
+  };
+  try {
+    for (const articleInput of [
+      { source: 'AIHOT', link: 'https://aihot.news/items/example' },
+      { source: 'legacy', link: 'https://aihot.virxact.com/items/example' }
+    ]) {
+      const article = await enrichArticle({ ...articleInput, content: 'RSS article text' });
+      assert.strictEqual(article.fullContent, 'RSS article text');
+      assert.strictEqual(article.fullContentMeta.fetchedFrom, 'rss');
+    }
+    assert.strictEqual(webRequests, 0);
+  } finally {
+    global.fetch = originalFetch;
+  }
+
   console.log('summary pipeline tests passed');
 }
 
-run();
+run().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});

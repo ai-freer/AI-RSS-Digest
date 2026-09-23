@@ -3,6 +3,8 @@ const {
   parseFeed,
   scoreAndSort,
   selectRankedArticles,
+  buildFeedList,
+  RSS_FEEDS,
   normalizeLanguageFilter
 } = require('./rss-fetcher');
 
@@ -75,12 +77,24 @@ function testLanguageFilter() {
   assert.strictEqual(normalizeLanguageFilter('unknown'), 'all');
 }
 
+function testOptionalAihotFeed() {
+  const isAihot = feed => feed.name === 'AIHOT';
+  const aihot = buildFeedList().find(isAihot);
+  assert.strictEqual(aihot.url, 'https://aihot.news/feed/all.xml');
+  assert.strictEqual(aihot.language, 'zh');
+  assert.strictEqual(aihot.weight, 1.2);
+  assert.strictEqual(RSS_FEEDS.some(isAihot), true);
+  assert.strictEqual(buildFeedList({ includeCN: false }).some(isAihot), false);
+  assert.strictEqual(buildFeedList({ includeCN: true, cnTier: 'B' }).some(isAihot), false);
+}
+
 function run() {
   testParseFeedRss();
   testParseFeedAtom();
   testScoreAndSort();
   testSelectRankedArticles();
   testLanguageFilter();
+  testOptionalAihotFeed();
   console.log('rss fetcher tests passed');
 }
 

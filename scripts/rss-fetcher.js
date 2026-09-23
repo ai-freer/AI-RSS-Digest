@@ -149,7 +149,7 @@ const BASE_RSS_FEEDS = [
 ];
 
 // 中文 RSS 候选源（来自 RSS_FEEDS_CN.md）
-// 默认不启用，需通过参数 includeCN 显式开启
+// 默认启用 A 级中文源，可通过 includeCN 显式关闭
 const CN_RSS_FEEDS = [
   // A 级（优先接入）
   { name: "阮一峰科技爱好者周刊", url: "https://www.ruanyifeng.com/blog/atom.xml", tags: ["中文", "编程", "周刊"], weight: 1.2, language: "zh", tier: "A" },
@@ -157,6 +157,7 @@ const CN_RSS_FEEDS = [
   { name: "面向信仰编程", url: "https://draven.co/feed.xml", tags: ["中文", "编程", "Go", "分布式"], weight: 1.1, language: "zh", tier: "A" },
   { name: "张鑫旭博客", url: "https://www.zhangxinxu.com/wordpress/feed/", tags: ["中文", "前端", "CSS", "浏览器"], weight: 1.1, language: "zh", tier: "A" },
   { name: "机器之心", url: "https://www.jiqizhixin.com/rss", tags: ["中文", "AI", "资讯"], weight: 1.1, language: "zh", tier: "A" },
+  { name: "AIHOT", url: "https://aihot.news/feed/all.xml", tags: ["中文", "AI", "资讯", "聚合"], weight: 1.2, language: "zh", tier: "A" },
   { name: "量子位", url: "https://www.qbitai.com/feed", tags: ["中文", "AI", "资讯"], weight: 1.0, language: "zh", tier: "A" },
   { name: "少数派", url: "https://sspai.com/feed", tags: ["中文", "综合", "工具", "方法论"], weight: 1.1, language: "zh", tier: "A" },
   { name: "36氪", url: "https://www.36kr.com/feed", tags: ["中文", "创业", "商业", "产品"], weight: 1.0, language: "zh", tier: "A" },
@@ -169,8 +170,8 @@ const CN_RSS_FEEDS = [
   { name: "爱范儿", url: "https://www.ifanr.com/feed", tags: ["中文", "综合", "消费科技"], weight: 0.9, language: "zh", tier: "B" },
 ];
 
-// 兼容既有导出语义（默认仅基础源）
-const RSS_FEEDS = BASE_RSS_FEEDS;
+// 默认源列表：基础源 + A 级中文源
+const RSS_FEEDS = buildFeedList();
 
 function normalizeTier(value) {
   if (!value) return 'A';
@@ -189,7 +190,7 @@ function normalizeLanguageFilter(value) {
   return 'all';
 }
 
-function buildFeedList({ includeCN = false, cnTier = 'A' } = {}) {
+function buildFeedList({ includeCN = true, cnTier = 'A' } = {}) {
   if (!includeCN) {
     return [...BASE_RSS_FEEDS];
   }
@@ -780,7 +781,7 @@ function selectRankedArticles(sortedArticles, topN, otherTopN, maxPerSource = 3,
  * @param {number} params.maxArticles - 可选：最大文章数
  * @param {boolean} params.healthCheck - 可选：仅执行源健康检测
  * @param {number} params.healthTimeout - 可选：健康检测超时（毫秒）
- * @param {boolean} params.includeCN - 可选：是否接入中文源（默认 false）
+ * @param {boolean} params.includeCN - 可选：是否接入中文源（默认 true）
  * @param {string} params.cnTier - 可选：中文源等级 A/B/ALL（默认 A）
  * @param {string} params.languageFilter - 可选：语言筛选 all/zh/global（默认 all）
  * @param {number} params.topN - 可选：主榜 TopN（默认等于 maxArticles）
@@ -796,7 +797,7 @@ async function main({ params }) {
     maxArticles = CONFIG.MAX_ARTICLES,
     healthCheck = false,
     healthTimeout = 5000,
-    includeCN = false,
+    includeCN = true,
     cnTier = 'A',
     languageFilter = 'all',
     topN = null,
@@ -958,7 +959,7 @@ if (require.main === module) {
         maxArticles: toNumber(args.maxArticles, CONFIG.MAX_ARTICLES),
         healthCheck: toBoolean(args.healthCheck, false),
         healthTimeout: toNumber(args.healthTimeout, 5000),
-        includeCN: toBoolean(args.includeCN, false),
+        includeCN: toBoolean(args.includeCN, true),
         cnTier: args.cnTier || 'A',
         languageFilter: args.languageFilter || 'all',
         topN: args.topN !== undefined ? toNumber(args.topN, null) : null,

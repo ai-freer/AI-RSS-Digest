@@ -66,19 +66,33 @@ function extractReadableText(html, url) {
   }
 }
 
-function withFallbackContent(article) {
+function withFallbackContent(article, fetchedFrom = 'rss-fallback') {
   const fallbackContent = safeText(article.content || article.rawContent, '');
   return {
     ...article,
     fullContent: fallbackContent,
     fullContentMeta: {
-      fetchedFrom: 'rss-fallback',
+      fetchedFrom,
       charCount: fallbackContent.length
     }
   };
 }
 
+function isAihotArticle(article) {
+  if (article.source === 'AIHOT') return true;
+  try {
+    const hostname = new URL(safeText(article.link)).hostname;
+    return hostname === 'aihot.news' || hostname === 'aihot.virxact.com';
+  } catch {
+    return false;
+  }
+}
+
 async function enrichArticle(article) {
+  if (isAihotArticle(article)) {
+    return withFallbackContent(article, 'rss');
+  }
+
   const link = safeText(article.link, '');
   if (!link) {
     return withFallbackContent(article);
@@ -144,7 +158,8 @@ async function main({ params }) {
         concurrency: CONFIG.CONCURRENCY,
         timeoutMs: CONFIG.TIMEOUT_MS,
         fetchedFromWeb: enrichedTopArticles.filter(a => a.fullContentMeta?.fetchedFrom === 'web').length,
-        fallbackToRss: enrichedTopArticles.filter(a => a.fullContentMeta?.fetchedFrom !== 'web').length
+        fromRss: enrichedTopArticles.filter(a => a.fullContentMeta?.fetchedFrom === 'rss').length,
+        fallbackToRss: enrichedTopArticles.filter(a => a.fullContentMeta?.fetchedFrom === 'rss-fallback').length
       }
     }
   };

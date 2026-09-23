@@ -6,7 +6,7 @@
 2. 优先技术细节和方法论，而不是情绪化评论。
 3. 保持覆盖面（编程/AI/系统/安全/创业），但每类只保留高信噪比源。
 
-> 说明：以下为候选池，正式纳入前建议先做健康检测与 2-4 周信噪比观察。
+> A 级中文源默认启用；B 级按需接入。继续通过健康检测观察可用性与信噪比。
 
 ## A 级（优先接入）
 
@@ -17,11 +17,14 @@
 | 编程 | 面向信仰编程 | https://draveness.me/atom.xml | Go/分布式/工程文章质量稳定 |
 | 前端 | 张鑫旭博客 | https://www.zhangxinxu.com/wordpress/feed/ | 前端 CSS/浏览器细节非常扎实 |
 | AI | 机器之心 | https://www.jiqizhixin.com/rss | 中文 AI 资讯中质量相对稳定 |
+| AI 聚合 | AIHOT | https://aihot.news/feed/all.xml | 高质量中文 AI 动态聚合，适合早读；与一手信源去重 |
 | AI | 量子位 | https://www.qbitai.com/feed | 行业动态更新快，适合早读 |
 | 综合 | 少数派 | https://sspai.com/feed | 工具和方法论内容可读性强 |
 | 创业 | 36氪 | https://www.36kr.com/feed | 商业与产品信息密度高 |
 | 安全 | FreeBuf | https://www.freebuf.com/feed | 中文安全资讯覆盖度高 |
 | 开源 | Linux 中国 | https://linux.cn/rss.xml | 开源生态和系统向内容较多 |
+
+AIHOT 站点现为 https://aihot.news；旧域名 `aihot.virxact.com` 会重定向至新域名。其 [公开使用规则](https://aihot.news/terms) 允许个人非商业使用；对外商业使用需先取得授权。
 
 ## B 级（按需接入）
 
@@ -56,9 +59,9 @@
 
 ## 当前脚本接入方式
 
-已在抓取脚本 `/Users/danielpan/AI_Workspace/Daily reading/rss-digest/scripts/rss-fetcher.js` 中接入中文源管理：
+已在抓取脚本 `scripts/rss-fetcher.js` 中接入中文源管理：
 
-- `includeCN`：是否启用中文源（默认 `false`，保持兼容）。
+- `includeCN`：是否启用中文源（默认 `true`；传 `false` 可关闭）。
 - `cnTier`：中文源等级筛选（`A` / `B` / `ALL`，默认 `A`）。
 - `languageFilter`：语言筛选（`all` / `zh` / `global`，默认 `all`）。
 

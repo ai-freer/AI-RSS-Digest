@@ -18,7 +18,7 @@ const {
 
 function parseArgs(argv) {
   const options = {
-    includeCN: false,
+    includeCN: true,
     cnTier: 'A',
     timeoutMs: 6000,
     concurrency: CONFIG.CONCURRENCY,
@@ -30,6 +30,10 @@ function parseArgs(argv) {
   for (const arg of argv) {
     if (arg === '--include-cn') {
       options.includeCN = true;
+      continue;
+    }
+    if (arg === '--exclude-cn') {
+      options.includeCN = false;
       continue;
     }
     if (arg.startsWith('--cn-tier=')) {

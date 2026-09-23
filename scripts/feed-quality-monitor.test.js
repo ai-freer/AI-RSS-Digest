@@ -38,6 +38,7 @@ function testCandidateFeedUrlsFromOrigins() {
 }
 
 function testParseArgs() {
+  assert.strictEqual(parseArgs([]).includeCN, true);
   const args = parseArgs([
     '--include-cn',
     '--cn-tier=B',
@@ -48,6 +49,7 @@ function testParseArgs() {
   assert.strictEqual(args.cnTier, 'B');
   assert.strictEqual(args.timeoutMs, 3000);
   assert.strictEqual(args.concurrency, 2);
+  assert.strictEqual(parseArgs(['--exclude-cn']).includeCN, false);
 }
 
 function run() {
