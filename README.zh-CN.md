@@ -20,7 +20,7 @@ Agent 驱动的 RSS 阅读工作流：先评审“值不值得读”，再做精
 npm ci --omit=dev --no-audit --no-fund
 ```
 
-展示名 **AI-RSS-Digest**，机器标识 `ai-rss-digest`，版本 4.0.0。验证新入口后退役旧 ak-92rss-digest。仓库地址、开发目录不要求更名；运行数据放在安装目录外。
+展示名 **AI-RSS-Digest**，机器标识 `ai-rss-digest`，版本 4.0.0。验证新入口后退役旧 ak-92rss-digest。仓库已统一为 [ai-freer/AI-RSS-Digest](https://github.com/ai-freer/AI-RSS-Digest)，开发目录为 `AI-RSS-Digest`；运行数据放在安装目录外。
 
 ## 使用
 

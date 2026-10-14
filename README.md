@@ -26,7 +26,7 @@ Requires Node.js >=18. Install this repository into your Agent's skills director
 npm ci --omit=dev --no-audit --no-fund
 ```
 
-Display name: **AI-RSS-Digest**. Package/skill ID: `ai-rss-digest`. Version 4 replaces `ak-92rss-digest`. Verify the new installation before retiring the old discovery entry. Repository URLs and existing source checkouts need not change; store runtime data outside installed skills.
+Display name: **AI-RSS-Digest**. Package/skill ID: `ai-rss-digest`. Version 4 replaces `ak-92rss-digest`. Verify the new installation before retiring the old discovery entry. Repository: [ai-freer/AI-RSS-Digest](https://github.com/ai-freer/AI-RSS-Digest). The development directory is named `AI-RSS-Digest`; store runtime data outside installed skills.
 
 ## Run
 
