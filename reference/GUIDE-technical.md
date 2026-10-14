@@ -1,133 +1,38 @@
-# 抓取、校验与质量闸门技术指南
+# AI-RSS-Digest 技术合同
 
-## 技术范围
+命令以 [SKILL.md](../SKILL.md) 为准。Node >=18，无新增运行依赖。
 
-本指南覆盖：
+| 产物 | 合同 |
+|---|---|
+| fetch-raw.json | 全部 candidates；旧榜单仅发现排序，editorialStatus=unreviewed |
+| editorial-packet.json | 候选/策略/提示词哈希/近七天历史/ledgerHash/packetId |
+| editorial-review.json | 所有 ID 恰好一次，真实 reviewer/reviewedAt，与 packetId 匹配 |
+| fetch-selected.json | 兼容 topArticles/otherTopArticles；完整 editorial.decisions 和统计 |
+| fetch-enriched.json | Tier1 全文；AIHOT 仅 RSS |
+| deep-read-results.json / tier2-raw.json | 精读和速览；保持链接/层级/顺序 |
+| summary.json / output.* | 经质量闸门的摘要和格式化产物 |
+| ledger.json | 安装目录外持久历史，成功后原子写入 |
 
-- `scripts/rss-fetcher.js`
-- `scripts/summary-utils.js`
-- `scripts/prepare-prompt.js`
-- `scripts/validate-summary.js`
-- `scripts/output-formatter.js`
-- `scripts/feed-quality-monitor.js`
+## 身份与时间
 
-## 端到端流程
+时间窗默认 24 小时。缺失发布时间保持 null；未来日期和缺失时间在选稿时 pending。URL 只移除已知追踪参数，保留业务查询和 fragment；备用 GUID 去重按源隔离，指纹保留 Unicode 字母数字。
 
-```text
-RSS 源 -> 抓取与排序 -> Prompt 组装 -> Agent 生成摘要 JSON -> 结构校验与质量修复 -> 格式化输出
-```
+保留所有候选及正文，不按旧榜单截断。SHA-256 packetId 绑定内容/规则/提示词哈希/历史；这不是数字签名，不能阻止主动伪造整个文件。
 
-说明：Agent 承担摘要生成，脚本层不调用外部 LLM API。
+## 评分与归组
 
-## 抓取策略（rss-fetcher）
+分数 = round(20 * sum(axisScore * axisWeight) / sum(axisWeight))，再应用 cap。每项整数 0–5。类型权重和门槛由 policy 指定，不按来源 A/B 自动加分。
 
-核心配置：
+同 eventId 优先有正文依据的 primary，再按分数和稳定 ID 选代表。事件按分数排序并执行单源/本期容量限制。history 相同事件或 URL 被抑制；同故事 update 需引用既有事件、具体新事实和正文证据。语义仍依赖 Agent，需抽查误合并与漏合并。
 
-- 并发：`CONCURRENCY = 5`
-- 超时：`TIMEOUT = 10000ms`
-- 重试：`RETRIES = 3`
-- 时间窗口：`TIME_WINDOW_HOURS = 24`
-- 内容裁剪：`MAX_CONTENT_LENGTH = 2000`
+## 历史与失败
 
-抓取质量控制：
+prepare/select 不写历史。record 校验 qualityGates.applied、两层名单的数量/链接/顺序，排他锁加同目录临时文件原子替换。历史变动需重新评审；同 packet 同 summary 重复记录幂等。不要不检查进程就删除锁。
 
-1. DOM 解析优先，正则回退
-2. 文本清洗与轻量去重
-3. 评分排序后再分层输出
+历史保留全部期次，去重窗口按 recordedAt 的最近七天。每七期返回 retrospectiveDue，本地出刊不代表外部投递成功。
 
-分层输出字段：
+## 评测
 
-- `topArticles`
-- `otherTopArticles`
+evaluate 接受人工 [{id,label}]，label=select/reject/either。对象是最终入选，包含事件抑制和名额限制；比较规则时固定候选、历史、容量和标签语义。
 
-## Prompt 组装（prepare-prompt + summary-utils）
-
-`prepare-prompt.js` 会：
-
-1. 读取抓取结果 JSON
-2. 加载摘要模板（默认 `templates/prompt-summarize-tiered.md`）
-3. 调用 `summary-utils.buildPromptArticles()` 与 `summary-utils.buildPrompt()`
-4. 输出最终 Prompt 文本
-
-常用命令：
-
-```bash
-node scripts/prepare-prompt.js --fetchFile tmp/fetch.json --template templates/prompt-summarize-tiered.md --outFile tmp/prompt.txt
-```
-
-## 摘要校验与归一化（validate-summary）
-
-`validate-summary.js` 会：
-
-1. 读取 Agent 生成文件（允许前后夹杂说明文字）
-2. 用 `extractJson()` 提取 JSON 主体
-3. 用 `ensureSummaryShape()` 归一化结构并修复质量
-
-输出关键字段：
-
-- `tier1` / `tier2`
-- `highlights` / `byCategory`（兼容格式化层）
-- `metadata.qualityGates`
-
-常用命令：
-
-```bash
-node scripts/validate-summary.js --input tmp/summary-raw.json --fetchFile tmp/fetch.json --outFile tmp/summary.json
-```
-
-## 质量闸门规则
-
-当前规则来自 `summary-utils.js`：
-
-- Tier1：
-  - `summary` 至少 3 句（不足会尝试由 `keyPoints` 重建）
-  - `keyPoints` 至少 3 条（自动补齐）
-  - `action` / `risk` 缺失时补默认文案
-- Tier2：
-  - `oneLiner` 过短时回退默认文案
-  - 过长时自动截断
-
-告警写入：
-
-- `metadata.qualityGates.warnings`
-
-## 输出格式化（output-formatter）
-
-支持三种基础格式：
-
-- `md`：Markdown 纯文本，可直接阅读或传给任意下游渠道
-- `html`：完整 HTML，内置 CSS 自定义属性（`--rsd-*`）作为最佳实践底线，使用方可覆盖
-- `json`：归一化 JSON 对象，供程序消费或自定义渠道适配
-
-常用命令：
-
-```bash
-node scripts/output-formatter.js --input tmp/summary.json --format md --outFile tmp/output.md
-node scripts/output-formatter.js --input tmp/summary.json --format html --outFile tmp/output.html
-node scripts/output-formatter.js --input tmp/summary.json --format json --outFile tmp/output.json
-```
-
-渠道适配（email/feishu/dingtalk/wecom 等）由下游 skill（如 `universal-deliver`）负责。
-
-## Feed 健康监控
-
-脚本：`scripts/feed-quality-monitor.js`
-
-作用：
-
-- 批量检测 RSS 可达性与活跃度
-- 输出最新快照与历史记录
-
-默认输出：
-
-- `tmp/feed-quality-latest.json`
-- `tmp/feed-quality-history.jsonl`
-
-## 相关文件
-
-- `scripts/rss-fetcher.js`
-- `scripts/summary-utils.js`
-- `scripts/prepare-prompt.js`
-- `scripts/validate-summary.js`
-- `scripts/output-formatter.js`
-- `scripts/feed-quality-monitor.js`
+pending/缺失计 failure，降低 coverage 和全量准确率；precision/recall/F1 基于已决案例，必须同时报告前两者，either 不计。测试夹具是合成行为测试，不是金标。归组另建成对人工检查。

@@ -14,6 +14,7 @@ const fs = require('fs');
 const path = require('path');
 const { USER_AGENT } = require('./project-meta');
 const { parseCliArgs } = require('./cli-utils');
+const { canonicalUrl, fingerprint, articleId } = require('./article-identity');
 
 const CONFIG = {
   // 并发控制
@@ -457,13 +458,7 @@ function similarity(str1, str2) {
  * 生成内容指纹（用于去重）
  */
 function contentFingerprint(text) {
-  if (!text) return '';
-  // 取前 100 个字符的简化版本
-  return text
-    .toLowerCase()
-    .replace(/[^\w\s]/g, '')
-    .substring(0, 100)
-    .trim();
+  return fingerprint(text);
 }
 
 // ==================== 核心功能 ====================
@@ -660,15 +655,16 @@ function prepareCandidates(articles, timeWindowHours = CONFIG.TIME_WINDOW_HOURS)
     }
 
     // 主键去重：优先 link，其次 guid，最后标题+内容指纹
-    const normalizedUrl = (article.link || '').replace(/[?#].*$/, '');
-    const dedupKey = normalizedUrl || article.guid || contentFingerprint(title + content);
+    const normalizedUrl = canonicalUrl(article.link);
+    const dedupKey = normalizedUrl || `${article.source || ''}:${article.guid || contentFingerprint(title + content)}`;
     if (dedupKey && seenKeys.has(dedupKey)) continue;
     if (dedupKey) seenKeys.add(dedupKey);
 
     candidates.push({
       ...article,
       hasValidPubDate: Boolean(pubDate),
-      pubDate: pubDate ? pubDate.toISOString() : new Date().toISOString()
+      pubDate: pubDate ? pubDate.toISOString() : null,
+      discoveredAt: new Date().toISOString()
     });
   }
 
@@ -685,7 +681,7 @@ function scoreAndSort(articles) {
 
   return articles.map(article => {
     const pubTime = new Date(article.pubDate).getTime();
-    const hoursAgo = (now - pubTime) / (1000 * 60 * 60);
+    const hoursAgo = Number.isFinite(pubTime) ? Math.max(0, (now - pubTime) / (1000 * 60 * 60)) : 48;
 
     // 时效性分数 (24h 内最高)，无有效发布日期时降权
     let freshnessScore = Math.max(0, 1 - hoursAgo / 48);
@@ -867,6 +863,7 @@ async function main({ params }) {
 
   // 格式化输出
   const formatArticle = (a) => ({
+    id: articleId(a),
     title: a.title,
     link: a.link,
     content: a.content,
@@ -875,6 +872,8 @@ async function main({ params }) {
     language: a.language,
     sourceTier: a.sourceTier,
     pubDate: a.pubDate,
+    hasValidPubDate: a.hasValidPubDate,
+    discoveredAt: a.discoveredAt,
     score: Math.round(a.score * 100) / 100
   });
   const formatted = topArticles.map(formatArticle);
@@ -888,6 +887,9 @@ async function main({ params }) {
       articles: formatted,
       topArticles: formatted,
       otherTopArticles: formattedOthers,
+      // The compatibility lists above are discovery rankings, not editorial approval.
+      candidates: articles.map(formatArticle),
+      editorialStatus: 'unreviewed',
       stats: {
         totalFeeds: allFeeds.length,
         filteredFeeds: feeds.length,
@@ -925,6 +927,8 @@ if (typeof module !== 'undefined' && module.exports) {
     checkFeedHealth,
     checkFeedsHealth,
     scoreAndSort,
+    prepareCandidates,
+    contentFingerprint,
     selectRankedArticles
   };
 }

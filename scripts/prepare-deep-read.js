@@ -25,6 +25,9 @@ const {
 
 function main({ params }) {
   const fetchData = params?.fetchData || {};
+  if (fetchData.editorialStatus === 'unreviewed') {
+    throw new Error('Run editorial prepare/select before deep reading; use the selected fetch file');
+  }
   const templateText = params?.templateText || '';
   const templateName = normalizeTemplateName(params?.templateName || 'daily');
   const topArticles = Array.isArray(fetchData?.topArticles) ? fetchData.topArticles : [];
