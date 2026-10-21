@@ -6,7 +6,7 @@
 |---|---|
 | fetch-raw.json | 全部 candidates；旧榜单仅发现排序，editorialStatus=unreviewed |
 | editorial-packet.json | 候选/策略/提示词哈希/近七天历史/ledgerHash/packetId |
-| editorial-review.json | 所有 ID 恰好一次，真实 reviewer/reviewedAt，与 packetId 匹配 |
+| editorial-review.json | 可评审 candidates 的所有 ID 恰好一次，真实 reviewer/reviewedAt，与 packetId 匹配 |
 | fetch-selected.json | 兼容 topArticles/otherTopArticles；完整 editorial.decisions 和统计 |
 | fetch-enriched.json | Tier1 全文；AIHOT 仅 RSS |
 | deep-read-results.json / tier2-raw.json | 精读和速览；保持链接/层级/顺序 |
@@ -35,4 +35,14 @@ prepare/select 不写历史。record 校验 qualityGates.applied、两层名单�
 
 evaluate 接受人工 [{id,label}]，label=select/reject/either。对象是最终入选，包含事件抑制和名额限制；比较规则时固定候选、历史、容量和标签语义。
 
-pending/缺失计 failure，降低 coverage 和全量准确率；precision/recall/F1 基于已决案例，必须同时报告前两者，either 不计。测试夹具是合成行为测试，不是金标。归组另建成对人工检查。
+本地待定/延期、Agent pending、缺失计 failure，降低 coverage 和全量准确率；precision/recall/F1 基于已决案例，必须同时报告前两者，either 不计。测试夹具是合成行为测试，不是金标。归组另建成对人工检查。
+
+## 4.1 采集与本地预筛
+
+XML 使用已有 jsdom 依赖统一解析，支持属性、命名空间、CDATA、Atom XHTML/HTML 实体；优先 content:encoded/content，回退 description/summary。格式错误抛错交给既有源错误记录，不静默当作空源。
+
+supplement 产出 fetch-ready.json，默认 bodyBudget=20，按来源轮转补正文；缺时间/未来日期/无 HTTP(S) URL 不请求，AIHOT RSS-only。失败和超预算均留记录，已有短正文不因长度受罚。补充后的 content/contentMeta 与 packet 一起绑定，精读复用成功网页正文。
+
+packet schemaVersion=2：candidates 为可评审项，localDecisions 保存其余原始条目及处理原因，candidateCount 为二者总数。prompt 不复制 localDecisions 正文，仅附计数。select 校验 ID 总数守恒且互不重复，最终 decisions 合并两种来源。旧 schemaVersion=1 packet 仍按原完整评审合同回放；不得修改旧 packet 强行迁移。
+
+coverageDiagnostics 在至少 10 条且正文覆盖率低于 20% 时告警；原始采集诊断与补充后诊断分别保留。outcome=pending-input 表示零入选且还有待定/延期，不能视为质量评审后无好文章；no-selection 表示无候选或无入选。

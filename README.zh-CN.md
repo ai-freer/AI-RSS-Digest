@@ -4,7 +4,7 @@
 
 Agent 驱动的 RSS 阅读工作流：先评审“值不值得读”，再做精读和摘要。
 
-## 4.0 的变化
+## 4.1 的变化
 
 - 抓取保留完整候选池，Agent 评审相关性、重要性、信息增量、证据和可用性，程序按类型计算分数。
 - 同事件只选一篇代表，近七天出刊历史抑制重复，后续进展需说明新增事实并引用正文。
@@ -20,14 +20,14 @@ Agent 驱动的 RSS 阅读工作流：先评审“值不值得读”，再做精
 npm ci --omit=dev --no-audit --no-fund
 ```
 
-展示名 **AI-RSS-Digest**，机器标识 `ai-rss-digest`，版本 4.0.0。验证新入口后退役旧 ak-92rss-digest。仓库已统一为 [ai-freer/AI-RSS-Digest](https://github.com/ai-freer/AI-RSS-Digest)，开发目录为 `AI-RSS-Digest`；运行数据放在安装目录外。
+展示名 **AI-RSS-Digest**，机器标识 `ai-rss-digest`，版本 4.1.0。验证新入口后退役旧 ak-92rss-digest。仓库已统一为 [ai-freer/AI-RSS-Digest](https://github.com/ai-freer/AI-RSS-Digest)，开发目录为 `AI-RSS-Digest`；运行数据放在安装目录外。
 
 ## 使用
 
 唯一标准命令见 [SKILL.md](SKILL.md)：
 
 ```text
-抓取 → 编辑评审 → 校验选稿 → Tier1 全文与精读
+抓取 → 有限补正文与本地预筛 → 编辑评审 → 校验选稿 → Tier1 全文与精读
 → Tier2 汇总 → 合并校验 → 格式化 → 出刊记录
 ```
 
@@ -43,3 +43,5 @@ RUN 设置为每期独立绝对路径，后续步骤使用 fetch-selected.json�
 - [技术合同](reference/GUIDE-technical.md)
 - [模板](reference/GUIDE-templates.md)
 - [信源](reference/GUIDE-sources.md)
+
+4.1 修复带属性 RSS/Atom 正文解析；加入正文覆盖率诊断、每条可追溯的本地预筛和默认 20 篇正文补充预算。原始候选不丢失，待定/延期项不占模型评审输入；采集质量异常不能包装成“今日无优质内容”。

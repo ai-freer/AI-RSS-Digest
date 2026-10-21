@@ -5,7 +5,7 @@
 An Agent-driven RSS reading workflow: review reading value, group events, suppress cross-edition repetition, and produce deep reads and short summaries.
 
 ```text
-RSS candidates → Agent editorial review → validated selection
+RSS candidates → bounded body recovery → local preflight → Agent editorial review → validated selection
 → Tier1 full text + deep read → Tier2 summary → validate + format → edition ledger
 ```
 
@@ -34,8 +34,9 @@ Follow [SKILL.md](SKILL.md), the single authoritative workflow. Set RUN to a uni
 
 ```bash
 node scripts/rss-fetcher.js --hours 24 --outFile "$RUN/fetch-raw.json"
-node scripts/editorial-cli.js prepare --fetchFile "$RUN/fetch-raw.json" --outFile "$RUN/editorial-packet.json" --promptFile "$RUN/editorial-prompt.md"
-# Agent reviews ALL IDs and writes editorial-review.json.
+node scripts/editorial-cli.js supplement --fetchFile "$RUN/fetch-raw.json" --bodyBudget 20 --outFile "$RUN/fetch-ready.json"
+node scripts/editorial-cli.js prepare --fetchFile "$RUN/fetch-ready.json" --outFile "$RUN/editorial-packet.json" --promptFile "$RUN/editorial-prompt.md"
+# Agent reviews ALL reviewable candidate IDs and writes editorial-review.json.
 node scripts/editorial-cli.js select --packetFile "$RUN/editorial-packet.json" --reviewFile "$RUN/editorial-review.json" --outFile "$RUN/fetch-selected.json"
 ```
 
@@ -51,3 +52,5 @@ npm test
 ```
 
 These are offline behavior checks, not proof of improved editorial accuracy. The initial threshold of 65 needs real human labels. See [design and attribution](reference/EDITORIAL-DESIGN.md), [technical contracts](reference/GUIDE-technical.md) and [templates](reference/GUIDE-templates.md).
+
+Version 4.1 uses XML DOM parsing, reports body coverage, and keeps local pending/deferred records outside model prompts. Every original candidate remains accountable. Low body coverage or pending-input is a collection/material issue, not evidence that no worthwhile articles exist.

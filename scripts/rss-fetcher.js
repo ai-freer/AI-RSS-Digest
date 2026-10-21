@@ -11,6 +11,8 @@
 
 // ==================== 配置 ====================
 const fs = require('fs');
+const { JSDOM } = require('jsdom');
+const { coverageDiagnostics } = require('./candidate-readiness');
 const path = require('path');
 const { USER_AGENT } = require('./project-meta');
 const { parseCliArgs } = require('./cli-utils');
@@ -241,7 +243,8 @@ function getFirstTagText(root, tagCandidates) {
   for (const tag of tagCandidates) {
     const nodes = getElementsByTag(root, tag);
     if (nodes.length > 0) {
-      const value = (nodes[0].textContent || '').trim();
+      const node = nodes[0];
+      const value = (node.children.length ? node.innerHTML : node.textContent || '').trim();
       if (value) return value;
     }
   }
@@ -258,7 +261,7 @@ function parseRSSWithDom(doc) {
     items.push({
       title: getFirstTagText(item, ['title']),
       link: getFirstTagText(item, ['link']),
-      description: getFirstTagText(item, ['description', 'encoded', 'content']),
+      description: getFirstTagText(item, ['encoded', 'content', 'description']),
       pubDate: getFirstTagText(item, ['pubDate', 'date']),
       guid: getFirstTagText(item, ['guid', 'id'])
     });
@@ -291,7 +294,7 @@ function parseAtomWithDom(doc) {
     items.push({
       title: getFirstTagText(entry, ['title']),
       link,
-      description: getFirstTagText(entry, ['summary', 'content']),
+      description: getFirstTagText(entry, ['content', 'summary']),
       pubDate: getFirstTagText(entry, ['updated', 'published']),
       guid: getFirstTagText(entry, ['id'])
     });
@@ -299,88 +302,21 @@ function parseAtomWithDom(doc) {
   return items;
 }
 
-/**
- * 正则回退解析 RSS（用于不支持 DOMParser 的运行环境）
- */
-function parseRSSWithRegex(xmlText) {
-  const items = [];
-  const itemRegex = /<item>([\s\S]*?)<\/item>/g;
-  let match;
-
-  while ((match = itemRegex.exec(xmlText)) !== null) {
-    const itemXml = match[1];
-
-    const getTag = (tag) => {
-      const regex = new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`);
-      const m = itemXml.match(regex);
-      return m ? m[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/, '$1').trim() : '';
-    };
-
-    items.push({
-      title: getTag('title'),
-      link: getTag('link'),
-      description: getTag('description') || getTag('content:encoded'),
-      pubDate: getTag('pubDate'),
-      guid: getTag('guid')
-    });
-  }
-
-  return items;
-}
-
-/**
- * 正则回退解析 Atom（用于不支持 DOMParser 的运行环境）
- */
-function parseAtomWithRegex(xmlText) {
-  const items = [];
-  const entryRegex = /<entry>([\s\S]*?)<\/entry>/g;
-  let match;
-
-  while ((match = entryRegex.exec(xmlText)) !== null) {
-    const entryXml = match[1];
-
-    const getTag = (tag) => {
-      const regex = new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`);
-      const m = entryXml.match(regex);
-      return m ? m[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/, '$1').trim() : '';
-    };
-
-    const getLink = () => {
-      const regex = /<link[^>]*href="([^"]*)"[^>]*>/;
-      const m = entryXml.match(regex);
-      return m ? m[1] : '';
-    };
-
-    items.push({
-      title: getTag('title'),
-      link: getLink(),
-      description: getTag('summary') || getTag('content'),
-      pubDate: getTag('updated') || getTag('published'),
-      guid: getTag('id')
-    });
-  }
-  return items;
-}
-
-/**
- * 解析 RSS/Atom feed（优先 DOMParser，失败后回退正则）
- */
+/** Parse XML consistently in Node; malformed feeds must not look like empty feeds. */
 function parseFeed(xmlText) {
-  const isAtom = xmlText.includes('<feed');
-  if (typeof DOMParser !== 'undefined') {
-    try {
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(xmlText, 'application/xml');
-      const parserErrors = doc.getElementsByTagName('parsererror');
-      if (!parserErrors || parserErrors.length === 0) {
-        return isAtom ? parseAtomWithDom(doc) : parseRSSWithDom(doc);
-      }
-    } catch (error) {
-      // DOM 解析失败时自动回退
-    }
+  let dom;
+  try {
+    dom = new JSDOM(xmlText, { contentType: 'application/xml' });
+    const doc = dom.window.document;
+    const root = doc.documentElement.localName;
+    if (root === 'feed') return parseAtomWithDom(doc);
+    if (root === 'rss' || root === 'RDF') return parseRSSWithDom(doc);
+    throw new Error(`Unsupported feed root: ${root}`);
+  } catch (error) {
+    throw new Error(`Invalid RSS/Atom XML: ${error.message}`);
+  } finally {
+    if (dom) dom.window.close();
   }
-
-  return isAtom ? parseAtomWithRegex(xmlText) : parseRSSWithRegex(xmlText);
 }
 
 /**
@@ -399,19 +335,11 @@ function stripHtml(html) {
  */
 function extractContent(html) {
   if (!html) return '';
-
-  // 移除 script 和 style
-  let text = html.replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, '');
-
-  // 转换为文本
-  text = stripHtml(text);
-
-  // 截断
-  if (text.length > CONFIG.MAX_CONTENT_LENGTH) {
-    text = text.substring(0, CONFIG.MAX_CONTENT_LENGTH) + '...';
-  }
-
-  return text;
+  const fragment = JSDOM.fragment(html);
+  for (const node of fragment.querySelectorAll('script, style')) node.remove();
+  for (const node of fragment.querySelectorAll('p, div, br, li, h1, h2, h3, pre')) node.append(' ');
+  const text = (fragment.textContent || '').replace(/\s+/g, ' ').trim();
+  return text.length > CONFIG.MAX_CONTENT_LENGTH ? text.slice(0, CONFIG.MAX_CONTENT_LENGTH) + '...' : text;
 }
 
 /**
@@ -889,6 +817,7 @@ async function main({ params }) {
       otherTopArticles: formattedOthers,
       // The compatibility lists above are discovery rankings, not editorial approval.
       candidates: articles.map(formatArticle),
+      diagnostics: coverageDiagnostics(articles),
       editorialStatus: 'unreviewed',
       stats: {
         totalFeeds: allFeeds.length,
@@ -924,6 +853,7 @@ if (typeof module !== 'undefined' && module.exports) {
     normalizeLanguageFilter,
     CONFIG,
     parseFeed,
+    extractContent,
     checkFeedHealth,
     checkFeedsHealth,
     scoreAndSort,

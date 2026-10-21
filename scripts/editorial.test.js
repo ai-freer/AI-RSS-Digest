@@ -62,7 +62,9 @@ test('partial, duplicate, stale and invented reviews fail closed', () => {
 
 test('unknown body, undated and future items remain pending; promotion is capped', () => {
   const p = packet([article(1, { content: '' }), article(2, { pubDate: null, hasValidPubDate: false }), article(3), article(4, { pubDate: '2026-10-15T00:00:00Z' })]);
-  const s = select(p, reviews(p, [{ relevance: 'unknown', material: 'insufficient' }, {}, { cap: 'promotion' }]));
+  assert.equal(p.candidates.length, 1);
+  assert.equal(p.localDecisions.length, 3);
+  const s = select(p, reviews(p, [{ cap: 'promotion' }]));
   assert.equal(s.editorial.counts.pending, 3);
   assert.equal(s.editorial.counts.rejected, 1);
   assert.equal(s.topArticles.length, 0);

@@ -1,3 +1,4 @@
+const { localReason, coverageDiagnostics } = require('./candidate-readiness');
 const { hash, articleId, canonicalUrl } = require('./article-identity');
 
 const AXES = ['significance', 'novelty', 'evidence', 'relevance', 'utility'];
@@ -44,12 +45,20 @@ function prepare(fetchData, policy, template, ledger = EMPTY_LEDGER, now = new D
     id: articleId(article), title: article.title || '', link: article.link || '', source: article.source || 'unknown',
     pubDate: article.pubDate || null, hasValidPubDate: article.hasValidPubDate === true,
     // Keep all supplied content. The Agent may batch IDs, but may not silently omit them.
-    content: article.content || '', language: article.language || 'unknown'
+    content: article.content || '', language: article.language || 'unknown',
+    contentMeta: article.contentMeta || null, supplementation: article.supplementation || null
   }));
   assert(new Set(candidates.map(a => a.id)).size === candidates.length, 'Duplicate candidate IDs');
+  const localDecisions = candidates.filter(a => localReason(a, now)).map(a => ({
+    ...a, status: a.supplementation?.status === 'budget-deferred' ? 'deferred' : 'pending',
+    reason: localReason(a, now), decisionOrigin: 'local', editorialScore: null
+  }));
+  const reviewable = candidates.filter(a => !localReason(a, now));
   const packet = {
-    schemaVersion: 1, createdAt: now, date: fetchData.date || now.slice(0, 10),
-    policy, promptHash: hash(template), ledgerHash: hash(ledger), history, candidates
+    schemaVersion: 2, createdAt: now, date: fetchData.date || now.slice(0, 10),
+    policy, promptHash: hash(template), ledgerHash: hash(ledger), history, candidates: reviewable, localDecisions,
+    candidateCount: candidates.length, diagnostics: coverageDiagnostics(candidates),
+    acquisitionDiagnostics: fetchData.diagnostics || null
   };
   return { ...packet, packetId: sealPacket(packet) };
 }
@@ -75,6 +84,11 @@ function select(packet, response) {
   const history = new Map(packet.history.map(event => [event.eventId, event]));
   const historyLinks = new Set(packet.history.map(event => canonicalUrl(event.link)));
   const eventStories = new Map(packet.history.map(event => [event.eventId, event.storyId]));
+  if (packet.schemaVersion === 2) {
+    assert(Array.isArray(packet.localDecisions), 'Missing local decisions');
+    const allIds = [...packet.candidates, ...packet.localDecisions].map(a => a.id);
+    assert(allIds.length === packet.candidateCount && new Set(allIds).size === allIds.length, 'Candidate accounting mismatch');
+  }
   const decisions = packet.candidates.map(article => {
     const review = reviewMap.get(article.id);
     assert(review, `Missing review: ${article.id}`);
@@ -113,8 +127,10 @@ function select(packet, response) {
         assert(!packet.history.some(e => e.storyId === review.storyId), 'Known story requires update/repeat judgment');
       }
     }
-    return { ...article, review, editorialScore: score, status, reason };
+    return { ...article, review, editorialScore: score, status, reason, decisionOrigin: 'agent' };
   });
+
+  decisions.push(...(packet.localDecisions || []));
 
   // One representative per occurrence, then rank events by reading value.
   const groups = new Map();
@@ -143,11 +159,13 @@ function select(packet, response) {
   }
   const articles = selected.map(row => ({ ...row, score: row.editorialScore }));
   const selection = {
+    outcome: articles.length ? 'selected' : decisions.some(d => ['pending', 'deferred'].includes(d.status)) ? 'pending-input' : 'no-selection',
     date: packet.date, editorialStatus: 'reviewed', topN: packet.policy.topN, otherTopN: packet.policy.otherTopN,
     topArticles: articles.slice(0, packet.policy.topN), otherTopArticles: articles.slice(packet.policy.topN),
     articles: articles.slice(0, packet.policy.topN),
     editorial: { packetId: packet.packetId, ledgerHash: packet.ledgerHash, policy: packet.policy,
-      promptHash: packet.promptHash, reviewer: response.reviewer, reviewedAt: response.reviewedAt,
+      diagnostics: packet.diagnostics || null, acquisitionDiagnostics: packet.acquisitionDiagnostics || null,
+      candidateCount: decisions.length, promptHash: packet.promptHash, reviewer: response.reviewer, reviewedAt: response.reviewedAt,
       decisions, counts: decisions.reduce((counts, row) => { counts[row.status] = (counts[row.status] || 0) + 1; return counts; }, {}) }
   };
   return { ...selection, selectionHash: hash(selection) };
@@ -193,7 +211,7 @@ function evaluate(gold, selected) {
     if (label.label === 'either') { result.either++; continue; }
     result.labeled++;
     const row = byId.get(label.id);
-    if (!row || row.status === 'pending') { result.failures++; result.mismatches.push({ id: label.id, expected: label.label, actual: 'unresolved' }); continue; }
+    if (!row || row.status === 'pending' || row.decisionOrigin === 'local') { result.failures++; result.mismatches.push({ id: label.id, expected: label.label, actual: 'unresolved' }); continue; }
     result.covered++;
     const positive = row.status === 'selected';
     const wanted = label.label === 'select';

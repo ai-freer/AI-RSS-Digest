@@ -92,6 +92,9 @@ async function enrichArticle(article) {
   if (isAihotArticle(article)) {
     return withFallbackContent(article, 'rss');
   }
+  if (article.contentMeta?.fetchedFrom === 'web' && article.contentMeta.url === article.link && safeText(article.content)) {
+    return { ...article, fullContent: article.content, fullContentMeta: article.contentMeta };
+  }
 
   const link = safeText(article.link, '');
   if (!link) {
@@ -172,6 +175,7 @@ if (typeof module !== 'undefined' && module.exports) {
     main,
     CONFIG,
     enrichArticle,
+    isAihotArticle,
     extractReadableText,
     mapWithConcurrency
   };
