@@ -116,7 +116,7 @@ const BASE_RSS_FEEDS = [
 
   // 创业/产品/商业
   { name: "dwarkesh.com", url: "https://www.dwarkeshpatel.com/feed", tags: ["创业", "访谈"], weight: 1.1 },
-  { name: "paulgraham.com", url: "http://www.aaronsw.com/2002/feeds/pgessays.rss", tags: ["创业", "YC"], weight: 1.2 },
+  { name: "paulgraham.com", url: "http://www.aaronsw.com/2002/feeds/pgessays.rss", tags: ["创业", "YC"], weight: 1.2, enabled: false, disabledReason: "2026-10-21 核验：第三方 feed 的 219 条仅含 title/link，无日期及正文，且列表落后于官网；暂停日常抓取，保留源等待修复。" },
   { name: "steveblank.com", url: "https://steveblank.com/feed/", tags: ["创业", "精益创业"], weight: 1.1 },
   { name: "experimental-history.com", url: "https://www.experimental-history.com/feed", tags: ["创业", "科学"], weight: 1.0 },
   { name: "danielwirtz.com", url: "https://danielwirtz.com/rss.xml", tags: ["产品", "设计"], weight: 1.0 },
@@ -194,9 +194,10 @@ function normalizeLanguageFilter(value) {
   return 'all';
 }
 
-function buildFeedList({ includeCN = true, cnTier = 'A' } = {}) {
+function buildFeedList({ includeCN = true, cnTier = 'A', includeDisabled = false } = {}) {
+  const active = feeds => includeDisabled ? feeds : feeds.filter(feed => feed.enabled !== false);
   if (!includeCN) {
-    return [...BASE_RSS_FEEDS];
+    return active([...BASE_RSS_FEEDS]);
   }
 
   const tier = normalizeTier(cnTier);
@@ -204,7 +205,7 @@ function buildFeedList({ includeCN = true, cnTier = 'A' } = {}) {
     ? CN_RSS_FEEDS
     : CN_RSS_FEEDS.filter(feed => feed.tier === tier);
 
-  return [...BASE_RSS_FEEDS, ...cnFeeds];
+  return active([...BASE_RSS_FEEDS, ...cnFeeds]);
 }
 
 // ==================== 工具函数 ====================
@@ -736,7 +737,7 @@ async function main({ params }) {
   const effectiveIncludeCN = includeCN || normalizedLanguageFilter === 'zh';
 
   // 构建源列表（基础源 + 可选中文源）
-  const allFeeds = buildFeedList({ includeCN: effectiveIncludeCN, cnTier });
+  const allFeeds = buildFeedList({ includeCN: effectiveIncludeCN, cnTier, includeDisabled: true });
 
   // 筛选 RSS 源（基于标签）
   let feeds = allFeeds;
@@ -748,6 +749,10 @@ async function main({ params }) {
     feeds = feeds.filter(f => f.tags && f.tags.some(t => tags.includes(t)));
   }
 
+  const skippedFeeds = feeds.filter(f => f.enabled === false)
+    .map(f => ({ feed: f.name, url: f.url, reason: f.disabledReason }));
+  feeds = feeds.filter(f => f.enabled !== false);
+
   // 仅执行源健康检测
   if (healthCheck) {
     const health = await checkFeedsHealth(feeds, CONFIG.CONCURRENCY, healthTimeout);
@@ -755,7 +760,8 @@ async function main({ params }) {
       result: {
         date: new Date().toISOString().split('T')[0],
         health: health.checks,
-        stats: health.stats
+        skippedFeeds,
+        stats: { ...health.stats, disabledFeeds: skippedFeeds.length }
       }
     };
   }
@@ -822,9 +828,11 @@ async function main({ params }) {
       candidates: articles.map(formatArticle),
       diagnostics: coverageDiagnostics(articles),
       editorialStatus: 'unreviewed',
+      skippedFeeds,
       stats: {
         totalFeeds: allFeeds.length,
         filteredFeeds: feeds.length,
+        disabledFeeds: skippedFeeds.length,
         successFeeds: feeds.length - errors.length,
         failedFeeds: errors.length,
         cnFeedsIncluded: effectiveIncludeCN ? allFeeds.filter(f => f.language === 'zh').length : 0,

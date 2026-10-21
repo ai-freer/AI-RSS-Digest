@@ -102,3 +102,34 @@ test('CLI omits local rows from prompt, permits local-only selection and support
     assert.match(selected.editorial.reviewer, /no Agent review/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('disabled Paul Graham stays auditable and never fetches in daily or health mode', async () => {
+  const { main, buildFeedList, BASE_RSS_FEEDS, RSS_FEEDS } = require('./rss-fetcher');
+  const pg = BASE_RSS_FEEDS.find(f => f.name === 'paulgraham.com');
+  assert.equal(pg.enabled, false);
+  assert.match(pg.disabledReason, /219/);
+  assert.ok(buildFeedList({ includeDisabled: true }).includes(pg));
+  for (const feeds of [RSS_FEEDS, buildFeedList({ includeCN: false }), buildFeedList({ cnTier: 'ALL' })]) {
+    assert.ok(!feeds.includes(pg));
+  }
+  const originalFetch = global.fetch;
+  const calls = [];
+  global.fetch = async url => {
+    calls.push(url);
+    return { ok: true, text: async () => '<rss><channel/></rss>' };
+  };
+  try {
+    for (const healthCheck of [false, true]) {
+      const { result } = await main({ params: { tagFilter: 'YC', healthCheck } });
+      assert.deepEqual(result.skippedFeeds, [{ feed: pg.name, url: pg.url, reason: pg.disabledReason }]);
+      assert.equal(result.stats.disabledFeeds, 1);
+    }
+    assert.ok(!calls.includes(pg.url));
+    const { result } = await main({ params: { languageFilter: 'zh', healthCheck: true } });
+    assert.equal(result.stats.disabledFeeds, 0);
+    assert.deepEqual(result.skippedFeeds, []);
+    assert.ok(calls.length > 0, 'active feeds still fetch');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});

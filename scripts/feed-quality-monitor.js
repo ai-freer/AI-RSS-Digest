@@ -10,7 +10,6 @@
 const fs = require('fs');
 const path = require('path');
 const {
-  BASE_RSS_FEEDS,
   buildFeedList,
   checkFeedsHealth,
   CONFIG
@@ -336,9 +335,7 @@ function appendHistory(filePath, report) {
 
 async function run() {
   const options = parseArgs(process.argv.slice(2));
-  const feeds = options.includeCN
-    ? buildFeedList({ includeCN: true, cnTier: options.cnTier })
-    : [...BASE_RSS_FEEDS];
+  const feeds = buildFeedList({ includeCN: options.includeCN, cnTier: options.cnTier });
 
   const health = await checkFeedsHealth(feeds, options.concurrency, options.timeoutMs);
   const checks = health.checks || [];

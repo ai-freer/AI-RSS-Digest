@@ -17,6 +17,12 @@
 - `RSS_FEEDS.md`
 - `RSS_FEEDS_CN.md`
 
+## 暂停的源
+
+`enabled: false` 保留条目及 `disabledReason`，默认 `buildFeedList`、日报抓取和质量监测跳过；审计可调用 `buildFeedList({ includeDisabled: true })` 查看完整配置，不代表恢复抓取。日报及健康检测结果的 `skippedFeeds` 保留跳过原因，`stats.disabledFeeds` 为当前语言/标签范围内停用数量。
+
+- **paulgraham.com**：2026-10-21 检查官网链接的 `http://www.aaronsw.com/2002/feeds/pgessays.rss`，219 条仅含 title/link，无日期及正文，列表落后于官网。暂停该 feed，保留名称、URL、标签及权重；不影响其他源，也未新增官网抓取。原始 OPML 作为来源清单保留，不是运行时启用配置。
+
 ## 分类与筛选
 
 动态分类类别（用于摘要和统计）：

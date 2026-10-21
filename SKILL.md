@@ -4,7 +4,7 @@ description: >-
   AI-RSS-Digest：生成 RSS 日报、中文 AI 与技术阅读摘要。通过 Agent 候选评审、
   类型化评分、事件去重、跨期新增信息判断、逐篇精读与周期复盘，筛选值得读的内容。
   本地脚本校验和留档，不调用外部 LLM API。
-version: 4.1.1
+version: 4.1.2
 ---
 
 # AI-RSS-Digest
@@ -31,6 +31,7 @@ node scripts/editorial-cli.js supplement --fetchFile "$RUN/fetch-raw.json" --bod
 node scripts/editorial-cli.js prepare --fetchFile "$RUN/fetch-ready.json" --outFile "$RUN/editorial-packet.json" --promptFile "$RUN/editorial-prompt.md"
 ```
 
+- 停用源保留配置与原因，但不进入日常抓取或健康检测；`skippedFeeds` 记录本次跳过项。Paul Graham 的旧第三方 feed 因缺日期、缺正文且列表滞后已暂停。
 - `candidates` 包含时间窗内全部候选；原 topArticles/otherTopArticles 是兼容发现排序，不是本期选稿。
 - 仅中文用 `--languageFilter zh`，关闭中文用 `--includeCN false`。旧抓取 CLI 会忽略未知参数，执行后核对 stats；editorial CLI 拒绝未知参数。
 - 每个原始候选必须有处理记录，但无需全部交给 Agent。prepare 将缺时间/未来日期/缺有效 URL/缺正文项写入 packet.localDecisions（无评分），prompt 只附原因计数；只对 prompt 中 candidates 的 ID 逐一评审。读取 editorial-prompt.md，逐个可评审 ID 评审。可每批约 20 篇，最终合并成一份同 packetId 的 editorial-review.json。跨批次复核 eventId/storyId，不能漏 ID 或给同一事件重复建 ID。
