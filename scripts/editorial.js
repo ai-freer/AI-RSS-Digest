@@ -1,4 +1,4 @@
-const { localReason, coverageDiagnostics } = require('./candidate-readiness');
+const { localReason, coverageDiagnostics, isDiscoveredLongform } = require('./candidate-readiness');
 const { hash, articleId, canonicalUrl } = require('./article-identity');
 
 const { quotaIdentity } = require('./source-quota');
@@ -48,6 +48,8 @@ function prepare(fetchData, policy, template, ledger = EMPTY_LEDGER, now = new D
   const history = ledger.editions.filter(e => Date.parse(e.recordedAt) >= cutoff).flatMap(e => e.events);
   const candidates = fetchData.candidates.map(article => ({
     origin: article.origin || null, id: articleId(article), title: article.title || '', link: article.link || '', source: article.source || 'unknown',
+    readingClass: article.readingClass || null, acquisitionKind: article.acquisitionKind || null,
+    discoveredAt: article.discoveredAt || null, acquiredAt: article.acquiredAt || null, publicationDateText: article.publicationDateText || null,
     pubDate: article.pubDate || null, hasValidPubDate: article.hasValidPubDate === true,
     // Keep all supplied content. The Agent may batch IDs, but may not silently omit them.
     content: article.content || '', language: article.language || 'unknown',
@@ -100,12 +102,13 @@ function select(packet, response) {
     assert(['pass', 'block', 'unknown'].includes(review.relevance), 'Invalid relevance');
     assert(['sufficient', 'insufficient'].includes(review.material), 'Invalid material');
     assert(nonempty(review.reason), 'A concise review reason is required');
+    if (isDiscoveredLongform(article, packet.createdAt)) assert(['analysis', 'tutorial'].includes(review.type), 'Newly discovered longform must be analysis or tutorial, never daily news');
     const score = scoreReview(review, packet.policy);
     let status = 'eligible';
     let reason = 'score-pass';
     if (review.relevance === 'block') { status = 'rejected'; reason = 'irrelevant'; }
     else if (review.relevance === 'unknown' || review.material === 'insufficient') { status = 'pending'; reason = 'insufficient-evidence'; }
-    else if (!article.hasValidPubDate || !Number.isFinite(Date.parse(article.pubDate)) || Date.parse(article.pubDate) > Date.parse(packet.createdAt)) {
+    else if (!isDiscoveredLongform(article, packet.createdAt) && (!article.hasValidPubDate || !Number.isFinite(Date.parse(article.pubDate)) || Date.parse(article.pubDate) > Date.parse(packet.createdAt))) {
       status = 'pending'; reason = 'unverified-publication-time';
     } else if (!canonicalUrl(article.link)) { status = 'pending'; reason = 'missing-article-url'; }
     else if (score < packet.policy.threshold) { status = 'rejected'; reason = 'below-threshold'; }

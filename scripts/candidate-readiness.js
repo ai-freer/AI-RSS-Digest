@@ -4,8 +4,17 @@ function hasBody(article) {
   return typeof article.content === 'string' && /[\p{L}\p{N}]/u.test(article.content);
 }
 
+function isDiscoveredLongform(article, now = new Date().toISOString()) {
+  return article.source === 'paulgraham.com' &&
+    /^https:\/\/paulgraham\.com\/[a-z0-9-]+\.html$/.test(article.link || '') &&
+    article.acquisitionKind === 'official-index-incremental' && article.readingClass === 'newly-discovered-longform' &&
+    article.pubDate === null && article.hasValidPubDate === false &&
+    Number.isFinite(Date.parse(article.discoveredAt)) && Number.isFinite(Date.parse(article.acquiredAt)) &&
+    Date.parse(article.discoveredAt) <= Date.parse(article.acquiredAt) && Date.parse(article.acquiredAt) <= Date.parse(now);
+}
+
 function localReason(article, now) {
-  if (!article.hasValidPubDate || !Number.isFinite(Date.parse(article.pubDate)) || Date.parse(article.pubDate) > Date.parse(now)) return 'unverified-publication-time';
+  if (!isDiscoveredLongform(article, now) && (!article.hasValidPubDate || !Number.isFinite(Date.parse(article.pubDate)) || Date.parse(article.pubDate) > Date.parse(now))) return 'unverified-publication-time';
   if (!canonicalUrl(article.link)) return 'missing-article-url';
   if (!hasBody(article)) return 'missing-body';
   return null;
@@ -22,4 +31,4 @@ function coverageDiagnostics(articles) {
   };
 }
 
-module.exports = { hasBody, localReason, coverageDiagnostics };
+module.exports = { isDiscoveredLongform, hasBody, localReason, coverageDiagnostics };

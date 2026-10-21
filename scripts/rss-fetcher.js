@@ -595,7 +595,7 @@ function prepareCandidates(articles, timeWindowHours = CONFIG.TIME_WINDOW_HOURS)
       ...article,
       hasValidPubDate: Boolean(pubDate),
       pubDate: pubDate ? pubDate.toISOString() : null,
-      discoveredAt: new Date().toISOString()
+      discoveredAt: article.discoveredAt || new Date().toISOString()
     });
   }
 
@@ -730,7 +730,9 @@ async function main({ params }) {
     topN = null,
     otherTopN = 30,
     maxPerSource = 3,
-    allowSourceOverflow = false
+    allowSourceOverflow = false,
+    includePaulGraham = true,
+    paulGrahamStateFile = undefined
   } = params || {};
 
   const normalizedLanguageFilter = normalizeLanguageFilter(languageFilter);
@@ -768,6 +770,18 @@ async function main({ params }) {
 
   // 抓取
   const { articles: rawArticles, errors } = await fetchFeeds(feeds);
+
+  let paulGraham = { status: 'excluded' };
+  const pgDefinition = BASE_RSS_FEEDS.find(f => f.name === 'paulgraham.com');
+  if (includePaulGraham && normalizedLanguageFilter !== 'zh' &&
+      (!tagFilter || tagFilter.split(',').some(t => pgDefinition.tags.includes(t.trim())))) {
+    try {
+      const collected = await require('./paul-graham').collect({ stateFile: paulGrahamStateFile, hours });
+      const { articles, ...diagnostics } = collected;
+      rawArticles.push(...articles);
+      paulGraham = diagnostics;
+    } catch (error) { paulGraham = { status: 'error', error: error.message }; }
+  }
 
   // 轻量去重，保留更多候选给排序层处理
   let articles = prepareCandidates(rawArticles, hours);
@@ -808,6 +822,8 @@ async function main({ params }) {
     sourceTags: a.sourceTags,
     language: a.language,
     sourceTier: a.sourceTier,
+    readingClass: a.readingClass || null, acquisitionKind: a.acquisitionKind || null,
+    acquiredAt: a.acquiredAt || null, publicationDateText: a.publicationDateText || null,
     pubDate: a.pubDate,
     hasValidPubDate: a.hasValidPubDate,
     discoveredAt: a.discoveredAt,
@@ -828,6 +844,7 @@ async function main({ params }) {
       candidates: articles.map(formatArticle),
       diagnostics: coverageDiagnostics(articles),
       editorialStatus: 'unreviewed',
+      paulGraham,
       skippedFeeds,
       stats: {
         totalFeeds: allFeeds.length,
@@ -910,6 +927,8 @@ if (require.main === module) {
         topN: args.topN !== undefined ? toNumber(args.topN, null) : null,
         otherTopN: toNumber(args.otherTopN, 30),
         maxPerSource: toNumber(args.maxPerSource, 3),
+        includePaulGraham: toBoolean(args.includePaulGraham, true),
+        paulGrahamStateFile: args.paulGrahamStateFile || undefined,
         allowSourceOverflow: toBoolean(args.allowSourceOverflow, false)
       }
     });

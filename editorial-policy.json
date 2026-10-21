@@ -1,5 +1,5 @@
 {
-  "version": "1.1.0",
+  "version": "1.2.0",
   "audience": "中文阅读的 AI 实践者、开发者和产品人员；兼顾重要新闻、深度技术与长期有用的方法",
   "threshold": 65,
   "historyDays": 7,

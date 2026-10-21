@@ -89,6 +89,8 @@ function buildPromptArticles(fetchData) {
       link: safeText(a.link, ''),
       source: safeText(a.source, 'unknown'),
       pubDate: safeText(a.pubDate, ''),
+      readingClass: a.readingClass || null, discoveredAt: a.discoveredAt || null, publicationDateText: a.publicationDateText || null,
+      timeNote: a.readingClass === 'newly-discovered-longform' ? '新发现长文；发现时间不等于发表时间，不写成今日发布。' : null,
       score: typeof a.score === 'number' ? a.score : null,
       content,
       categoryHint: inferCategory(a.title, content),
@@ -133,7 +135,9 @@ function buildDeepReadPrompt(templateText, article, templateName) {
   const name = normalizeTemplateName(templateName);
   const hints = getTemplateHints(name);
   const fullContent = safeText(article?.fullContent || article?.content, '信息不足');
-  return templateText
+  const timeNote = article?.readingClass === 'newly-discovered-longform'
+    ? `新发现长文（非当天新闻）。首次发现：${article.discoveredAt}；原文日期：${article.publicationDateText || '未知'}。不得声称今日发布。\n` : '';
+  return timeNote + templateText
     .replace(/\{\{templateName\}\}/g, name)
     .replace(/\{\{templateHints\}\}/g, hints)
     .replace(/\{\{title\}\}/g, safeText(article?.title, 'Untitled'))
@@ -439,6 +443,10 @@ function ensureSummaryShape(data, fetchData = {}) {
   const tier2Quality = enforceTier2Quality(rawTier2);
   const tier1 = tier1Quality.tier1;
   const tier2 = tier2Quality.tier2;
+  const discoveredLinks = new Set([...fetchTop, ...fetchOther].filter(a => a.readingClass === 'newly-discovered-longform').map(a => a.link));
+  for (const row of [...tier1, ...tier2]) {
+    if (discoveredLinks.has(row.link) && !row.title.startsWith('【新发现长文】')) row.title = `【新发现长文】${row.title}`;
+  }
   const highlights = bridgeFromTier1(tier1);
   const byCategory = groupTier2ByCategory(tier2);
   const summary = (data.summary && typeof data.summary === 'object')

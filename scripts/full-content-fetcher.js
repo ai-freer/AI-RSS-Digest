@@ -92,6 +92,9 @@ async function enrichArticle(article) {
   if (isAihotArticle(article)) {
     return withFallbackContent(article, 'rss');
   }
+  if (require('./candidate-readiness').isDiscoveredLongform(article) && safeText(article.content)) {
+    return { ...article, fullContent: article.content, fullContentMeta: { fetchedFrom: 'official-index-cache', charCount: article.content.length } };
+  }
   if (article.contentMeta?.fetchedFrom === 'web' && article.contentMeta.url === article.link && safeText(article.content)) {
     return { ...article, fullContent: article.content, fullContentMeta: article.contentMeta };
   }

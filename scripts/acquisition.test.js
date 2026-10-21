@@ -120,7 +120,7 @@ test('disabled Paul Graham stays auditable and never fetches in daily or health 
   };
   try {
     for (const healthCheck of [false, true]) {
-      const { result } = await main({ params: { tagFilter: 'YC', healthCheck } });
+      const { result } = await main({ params: { tagFilter: 'YC', healthCheck, includePaulGraham: false } });
       assert.deepEqual(result.skippedFeeds, [{ feed: pg.name, url: pg.url, reason: pg.disabledReason }]);
       assert.equal(result.stats.disabledFeeds, 1);
     }
