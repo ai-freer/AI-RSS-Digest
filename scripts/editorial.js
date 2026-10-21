@@ -1,6 +1,8 @@
 const { localReason, coverageDiagnostics } = require('./candidate-readiness');
 const { hash, articleId, canonicalUrl } = require('./article-identity');
 
+const { quotaIdentity } = require('./source-quota');
+
 const AXES = ['significance', 'novelty', 'evidence', 'relevance', 'utility'];
 const EMPTY_LEDGER = { schemaVersion: 1, editions: [] };
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
@@ -10,6 +12,9 @@ function validatePolicy(policy) {
   assert(nonempty(policy.version) && nonempty(policy.audience), 'Policy needs version and audience');
   for (const key of ['threshold', 'historyDays', 'reviewEveryEditions', 'topN', 'otherTopN', 'maxPerSource']) {
     assert(Number.isInteger(policy[key]) && policy[key] >= (key === 'otherTopN' ? 0 : 1), `Invalid policy ${key}`);
+  }
+  for (const config of Object.values(policy.aggregatorSources || {})) {
+    assert(Number.isInteger(config.unknownPublisherLimit) && config.unknownPublisherLimit > 0, 'Invalid unknown publisher quota');
   }
   assert(policy.threshold <= 100, 'Invalid threshold');
   assert(policy.weights && Object.keys(policy.weights).length > 0, 'Missing weights');
@@ -42,7 +47,7 @@ function prepare(fetchData, policy, template, ledger = EMPTY_LEDGER, now = new D
   const cutoff = Date.parse(now) - policy.historyDays * 86400000;
   const history = ledger.editions.filter(e => Date.parse(e.recordedAt) >= cutoff).flatMap(e => e.events);
   const candidates = fetchData.candidates.map(article => ({
-    id: articleId(article), title: article.title || '', link: article.link || '', source: article.source || 'unknown',
+    origin: article.origin || null, id: articleId(article), title: article.title || '', link: article.link || '', source: article.source || 'unknown',
     pubDate: article.pubDate || null, hasValidPubDate: article.hasValidPubDate === true,
     // Keep all supplied content. The Agent may batch IDs, but may not silently omit them.
     content: article.content || '', language: article.language || 'unknown',
@@ -148,12 +153,14 @@ function select(packet, response) {
   const selected = [];
   const sourceCounts = new Map();
   for (const row of representatives) {
-    const count = sourceCounts.get(row.source) || 0;
-    if (count >= packet.policy.maxPerSource || selected.length >= packet.policy.topN + packet.policy.otherTopN) {
-      row.status = 'deferred'; row.reason = count >= packet.policy.maxPerSource ? 'source-quota' : 'edition-capacity';
+    const quota = packet.policy.aggregatorSources ? quotaIdentity(row, packet.policy) : { key: row.source, limit: packet.policy.maxPerSource, basis: 'legacy-source' };
+    row.sourceQuota = quota;
+    const count = sourceCounts.get(quota.key) || 0;
+    if (count >= quota.limit || selected.length >= packet.policy.topN + packet.policy.otherTopN) {
+      row.status = 'deferred'; row.reason = count >= quota.limit ? 'source-quota' : 'edition-capacity';
     } else {
       row.status = 'selected'; row.reason = 'selected';
-      sourceCounts.set(row.source, count + 1);
+      sourceCounts.set(quota.key, count + 1);
       selected.push(row);
     }
   }

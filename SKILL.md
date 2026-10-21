@@ -4,7 +4,7 @@ description: >-
   AI-RSS-Digest：生成 RSS 日报、中文 AI 与技术阅读摘要。通过 Agent 候选评审、
   类型化评分、事件去重、跨期新增信息判断、逐篇精读与周期复盘，筛选值得读的内容。
   本地脚本校验和留档，不调用外部 LLM API。
-version: 4.1.0
+version: 4.1.1
 ---
 
 # AI-RSS-Digest
@@ -52,6 +52,7 @@ node scripts/editorial-cli.js select --packetFile "$RUN/editorial-packet.json" -
 程序验证“本地处理 + Agent 评审”完整覆盖所有原始 ID、分数、正文引文和历史关联，计算分数、选择事件代表，执行单源配额。完整入选/拒绝/待定/重复/名额限制及理由保存在 editorial.decisions。
 
 - 同次事件只保留一篇，优先有证据的一手来源。
+- 配额按原始发布方计数：普通条目用链接站点，AIHOT 用 RSS 明确的“阅读原文”链接；同站点直采与聚合共享默认 3 篇配额。X/Twitter 按账号归组。无法确认原始发布方的 AIHOT 条目进入独立兜底桶，默认最多 6 篇（policy.aggregatorSources.AIHOT.unknownPublisherLimit）。原文链接仅用于归属，不触发 AIHOT 网页抓取，也不自动证明其为第一方。不同来源通过评分和事件去重后可以占据 6 个 Tier1 名额，不保送固定数量。
 - 近七天出刊事件抑制重复；真实进展需新 eventId、同 storyId、previousEventId 和新增事实证据。
 - 多事件盘点不作为单事件入选，避免串联错误；有独立价值的教程/分析可作为独立知识条目。
 - 字符串校验无法保证事实真实性或语义归组正确，必须复盘抽查漏合并和误合并。

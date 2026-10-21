@@ -1,5 +1,5 @@
 {
-  "version": "1.0.0",
+  "version": "1.1.0",
   "audience": "中文阅读的 AI 实践者、开发者和产品人员；兼顾重要新闻、深度技术与长期有用的方法",
   "threshold": 65,
   "historyDays": 7,
@@ -8,11 +8,51 @@
   "otherTopN": 20,
   "maxPerSource": 3,
   "weights": {
-    "release": {"significance": 3, "novelty": 2, "evidence": 2, "relevance": 2, "utility": 1},
-    "research": {"significance": 4, "novelty": 3, "evidence": 2, "relevance": 1, "utility": 0},
-    "tutorial": {"significance": 1, "novelty": 1, "evidence": 2, "relevance": 2, "utility": 4},
-    "analysis": {"significance": 2, "novelty": 3, "evidence": 2, "relevance": 2, "utility": 1},
-    "industry": {"significance": 3, "novelty": 2, "evidence": 2, "relevance": 3, "utility": 0}
+    "release": {
+      "significance": 3,
+      "novelty": 2,
+      "evidence": 2,
+      "relevance": 2,
+      "utility": 1
+    },
+    "research": {
+      "significance": 4,
+      "novelty": 3,
+      "evidence": 2,
+      "relevance": 1,
+      "utility": 0
+    },
+    "tutorial": {
+      "significance": 1,
+      "novelty": 1,
+      "evidence": 2,
+      "relevance": 2,
+      "utility": 4
+    },
+    "analysis": {
+      "significance": 2,
+      "novelty": 3,
+      "evidence": 2,
+      "relevance": 2,
+      "utility": 1
+    },
+    "industry": {
+      "significance": 3,
+      "novelty": 2,
+      "evidence": 2,
+      "relevance": 3,
+      "utility": 0
+    }
   },
-  "caps": {"none": 100, "promotion": 49, "speculation": 49, "routine": 59}
+  "caps": {
+    "none": 100,
+    "promotion": 49,
+    "speculation": 49,
+    "routine": 59
+  },
+  "aggregatorSources": {
+    "AIHOT": {
+      "unknownPublisherLimit": 6
+    }
+  }
 }

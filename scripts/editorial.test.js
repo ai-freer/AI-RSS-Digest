@@ -12,7 +12,7 @@ const policy = require('../editorial-policy.json');
 const now = '2026-10-14T10:00:00.000Z';
 
 function article(n, extra = {}) {
-  return { title: `文章${n}`, link: `https://example.com/?id=${n}`, source: `来源${n}`, content: '我们发布了可复现的方法。测试代码和条件如下。新测试证实内存降低一半。', pubDate: now, hasValidPubDate: true, ...extra };
+  return { title: `文章${n}`, link: `https://source-${extra.source || n}.example/?id=${n}`, source: `来源${n}`, content: '我们发布了可复现的方法。测试代码和条件如下。新测试证实内存降低一半。', pubDate: now, hasValidPubDate: true, ...extra };
 }
 function packet(articles = [article(1)], ledger = EMPTY_LEDGER, customPolicy = policy) {
   return prepare({ candidates: articles }, customPolicy, 'editorial prompt', ledger, now);
@@ -160,4 +160,48 @@ test('CLI prepare/select/record/evaluate/retrospective runs offline', () => {
     const bad = spawnSync(process.execPath, [path.join(__dirname, 'editorial-cli.js'), 'prepare', '--typo', 'x']);
     assert.equal(bad.status, 1);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('AIHOT six distinct publishers can occupy six Tier1 slots', () => {
+  const rows = Array.from({ length: 6 }, (_, i) => article(i, { source: 'AIHOT', origin: { url: `https://publisher-${i}.example/news`, evidence: 'rss-read-original-link' } }));
+  const p = packet(rows);
+  const s = select(p, reviews(p));
+  assert.equal(s.topArticles.length, 6);
+  assert.ok(s.topArticles.every(a => a.sourceQuota.basis === 'original-publisher'));
+});
+
+test('aggregated and direct articles from one publisher share a quota', () => {
+  const rows = Array.from({ length: 5 }, (_, i) => article(i, i < 4
+    ? { source: 'AIHOT', origin: { url: `https://www.publisher.example/${i}`, evidence: 'rss-read-original-link' } }
+    : { source: 'Publisher direct', link: `https://publisher.example/${i}` }));
+  const p = packet(rows); const s = select(p, reviews(p));
+  assert.equal(s.topArticles.length, 3);
+  assert.equal(s.editorial.counts.deferred, 2);
+  assert.ok(s.editorial.decisions.filter(d => d.status === 'deferred').every(d => d.reason === 'source-quota'));
+});
+
+test('unknown aggregate publishers have a bounded configurable quota and still dedupe events', () => {
+  const rows = Array.from({ length: 8 }, (_, i) => article(i, { source: 'AIHOT' }));
+  const p = packet(rows); const s = select(p, reviews(p));
+  assert.equal(s.topArticles.length, 6);
+  assert.equal(s.editorial.counts.deferred, 2);
+  const r = reviews(p); r.reviews.forEach(row => { row.eventId = 'one-event'; row.storyId = 'one-story'; });
+  assert.equal(select(p, r).topArticles.length, 1);
+  const oldPolicy = { ...policy }; delete oldPolicy.aggregatorSources;
+  const old = packet(rows, EMPTY_LEDGER, oldPolicy);
+  assert.equal(select(old, reviews(old)).topArticles.length, 3);
+});
+
+test('origin extraction uses only one explicit RSS original link; social quotas are by account', () => {
+  const { extractOrigin, publisherKey, quotaIdentity } = require('./source-quota');
+  const html = '<a href="https://incidental.example/">提及</a><a href="https://x.com/TeamAI/status/123">阅读原文</a>';
+  const origin = extractOrigin('AIHOT', html);
+  assert.equal(origin.url, 'https://x.com/TeamAI/status/123');
+  assert.equal(publisherKey(origin.url), publisherKey('https://twitter.com/teamai/status/456'));
+  assert.notEqual(publisherKey(origin.url), publisherKey('https://x.com/another/status/456'));
+  assert.equal(extractOrigin('Other', html), null);
+  assert.equal(extractOrigin('AIHOT', '<a href="https://incidental.example">提及</a>'), null);
+  assert.equal(extractOrigin('AIHOT', html + '<a href="https://other.example/">阅读原文</a>'), null);
+  assert.equal(extractOrigin('AIHOT', '<a href="https://aihot.news/item">阅读原文</a>'), null);
+  assert.equal(quotaIdentity({ source: 'AIHOT', origin: { url: 'https://x.com/i/status/123', evidence: 'rss-read-original-link' } }, policy).limit, 6);
 });

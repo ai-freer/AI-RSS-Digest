@@ -20,7 +20,7 @@ Agent 驱动的 RSS 阅读工作流：先评审“值不值得读”，再做精
 npm ci --omit=dev --no-audit --no-fund
 ```
 
-展示名 **AI-RSS-Digest**，机器标识 `ai-rss-digest`，版本 4.1.0。验证新入口后退役旧 ak-92rss-digest。仓库已统一为 [ai-freer/AI-RSS-Digest](https://github.com/ai-freer/AI-RSS-Digest)，开发目录为 `AI-RSS-Digest`；运行数据放在安装目录外。
+展示名 **AI-RSS-Digest**，机器标识 `ai-rss-digest`，版本 4.1.1。验证新入口后退役旧 ak-92rss-digest。仓库已统一为 [ai-freer/AI-RSS-Digest](https://github.com/ai-freer/AI-RSS-Digest)，开发目录为 `AI-RSS-Digest`；运行数据放在安装目录外。
 
 ## 使用
 
@@ -45,3 +45,5 @@ RUN 设置为每期独立绝对路径，后续步骤使用 fetch-selected.json�
 - [信源](reference/GUIDE-sources.md)
 
 4.1 修复带属性 RSS/Atom 正文解析；加入正文覆盖率诊断、每条可追溯的本地预筛和默认 20 篇正文补充预算。原始候选不丢失，待定/延期项不占模型评审输入；采集质量异常不能包装成“今日无优质内容”。
+
+4.1.1：AIHOT 按 RSS 原文发布方分配名额；未知发布方使用独立可配置配额，仍需通过评分和事件去重。

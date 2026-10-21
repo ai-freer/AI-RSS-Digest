@@ -75,3 +75,7 @@ cap = none / promotion / speculation / routine：
 ```
 
 block/unknown/insufficient 也必须填写 id、relevance、material、type、scores、cap、reason；可省略事件字段。不要把未知事实当作低分事实，优先明确 pending。
+
+## 聚合源配额
+
+source 表示发现渠道；origin 是抓取脚本从 AIHOT RSS 的“阅读原文”链接提取的归属证据。不要自行编造或修改 origin。程序按原始站点（X/Twitter 按账号）执行配额，AIHOT 不统一压成 3 篇。原始链接不是独立事实验证，也不能替代事件去重或直接认定 primary。

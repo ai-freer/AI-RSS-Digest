@@ -46,3 +46,9 @@ supplement 产出 fetch-ready.json，默认 bodyBudget=20，按来源轮转补�
 packet schemaVersion=2：candidates 为可评审项，localDecisions 保存其余原始条目及处理原因，candidateCount 为二者总数。prompt 不复制 localDecisions 正文，仅附计数。select 校验 ID 总数守恒且互不重复，最终 decisions 合并两种来源。旧 schemaVersion=1 packet 仍按原完整评审合同回放；不得修改旧 packet 强行迁移。
 
 coverageDiagnostics 在至少 10 条且正文覆盖率低于 20% 时告警；原始采集诊断与补充后诊断分别保留。outcome=pending-input 表示零入选且还有待定/延期，不能视为质量评审后无好文章；no-selection 表示无候选或无入选。
+
+## 4.1.1 聚合源配额
+
+policy 1.1.0 将发现渠道与发布方配额分开。AIHOT 仅从 RSS HTML 中唯一且明确标为“阅读原文”的外部 HTTP(S) 链接提取 origin；普通引用链接、歧义链接和站内链接不推测归属。按 hostname（去 www）计数，X/Twitter 的明确 status 链接按账号计数。相同发布方直采与聚合共享 maxPerSource=3；未知 AIHOT 发布方的独立桶默认上限 6，可配置。不同子域暂不推断为同一媒体集团，跨账号同一实体也不自动合并，仍以事件去重约束重复报道。
+
+每条参与配额的决策保存 sourceQuota.key/limit/basis 供审计。旧策略没有 aggregatorSources 时沿用 source 字段配额，以保持旧快照可回放。抓取兼容榜单仍是发现排序，正式选稿必须使用完整 candidates，不能把它当成最终配额结果。

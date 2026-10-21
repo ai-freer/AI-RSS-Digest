@@ -12,6 +12,7 @@
 // ==================== 配置 ====================
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
+const { extractOrigin } = require('./source-quota');
 const { coverageDiagnostics } = require('./candidate-readiness');
 const path = require('path');
 const { USER_AGENT } = require('./project-meta');
@@ -430,6 +431,7 @@ async function fetchFeedOnce(feed, timeout = CONFIG.TIMEOUT) {
         link: item.link || '',
         content: extractContent(item.description),
         rawContent: item.description || '',
+        origin: extractOrigin(feed.name, item.description),
         pubDate: item.pubDate,
         source: feed.name,
         // 不再预分类，tags 仅作为参考，AI 根据内容动态分类
@@ -796,6 +798,7 @@ async function main({ params }) {
     link: a.link,
     content: a.content,
     source: a.source,
+    origin: a.origin || null,
     sourceTags: a.sourceTags,
     language: a.language,
     sourceTier: a.sourceTier,

@@ -54,3 +54,5 @@ npm test
 These are offline behavior checks, not proof of improved editorial accuracy. The initial threshold of 65 needs real human labels. See [design and attribution](reference/EDITORIAL-DESIGN.md), [technical contracts](reference/GUIDE-technical.md) and [templates](reference/GUIDE-templates.md).
 
 Version 4.1 uses XML DOM parsing, reports body coverage, and keeps local pending/deferred records outside model prompts. Every original candidate remains accountable. Low body coverage or pending-input is a collection/material issue, not evidence that no worthwhile articles exist.
+
+4.1.1: AIHOT quotas follow original publishers from explicit RSS links, with a configurable unknown-publisher bucket. Scoring and event deduplication still apply.
