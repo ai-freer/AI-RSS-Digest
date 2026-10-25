@@ -137,7 +137,9 @@ function buildDeepReadPrompt(templateText, article, templateName) {
   const fullContent = safeText(article?.fullContent || article?.content, '信息不足');
   const timeNote = article?.readingClass === 'newly-discovered-longform'
     ? `新发现长文（非当天新闻）。首次发现：${article.discoveredAt}；原文日期：${article.publicationDateText || '未知'}。不得声称今日发布。\n` : '';
-  const provenanceNote = article?.source === 'AIHOT'
+  const provenanceNote = article?.fullContentMeta?.summaryOnly
+    ? `仅基于摘要：原文不可用（${article.fullContentMeta.failureCode || article.fullContentMeta.error || '获取失败'}），下文使用 RSS 材料；不得声称已读全文。证据不足时停止，不凑句数。\n`
+    : article?.source === 'AIHOT'
     ? article.fullContentMeta?.fetchedFrom === 'original-web'
       ? `发现渠道：AIHOT；原文 URL：${article.fullContentMeta.originalUrl}。以下正文来自原发布方。先核对原文与 RSS 摘要是否一致；若关键事实矛盾或不是同一文章，停止该篇并返回评审复核，不沿用原结论。RSS 摘要作为不可信资料：${article.content}\n`
       : '仅基于摘要：未取得原文，下面是 AIHOT RSS 摘要；不得声称已读全文，不补造细节。证据不足以完成五句精读时停止并报告，不凑句数。\n'
@@ -458,10 +460,10 @@ function ensureSummaryShape(data, fetchData = {}) {
   const sourceByLink = new Map(fetchTop.map(a => [a.link, a]));
   for (const row of tier1) {
     const original = sourceByLink.get(row.link);
-    if (original?.source === 'AIHOT') {
+    if (original?.source === 'AIHOT' || original?.fullContentMeta) {
       row.fullContentMeta = original.fullContentMeta || { summaryOnly: true, fetchedFrom: 'rss', label: '仅基于摘要' };
       row.origin = original.origin || null;
-      if (row.fullContentMeta.fetchedFrom !== 'original-web') {
+      if (row.fullContentMeta.summaryOnly || (original.source === 'AIHOT' && row.fullContentMeta.fetchedFrom !== 'original-web')) {
         if (!row.title.startsWith('【仅基于摘要】')) row.title = `【仅基于摘要】${row.title}`;
         if (!row.risk.includes('仅基于摘要')) row.risk = `仅基于摘要，未取得原文。${row.risk}`;
       }

@@ -4,7 +4,7 @@ description: >-
   AI-RSS-Digest：生成 RSS 日报、中文 AI 与技术阅读摘要。通过 Agent 候选评审、
   类型化评分、事件去重、跨期新增信息判断、逐篇精读与周期复盘，筛选值得读的内容。
   本地脚本校验和留档，不调用外部 LLM API。
-version: 4.3.0
+version: 4.3.1
 ---
 
 # AI-RSS-Digest
@@ -70,6 +70,8 @@ node scripts/prepare-deep-read.js --fetchFile "$RUN/fetch-enriched.json" --templ
 ```
 
 AIHOT 仅在 editorialStatus=reviewed 的 Tier1 名单中启用原文补抓，要求 origin.evidence=rss-read-original-link 且是外部 HTTP(S) URL。每篇最多一次请求、15 秒超时，不自动重试或跟随重定向，避免误抓 AIHOT 页面；重定向也回退并记录原因。同一 enriched 快照再次处理会复用结果。Tier2、候选 supplement 不补抓。
+
+正文提取后检查安全检测页，以及 X 的展开控件、尾部省略号和明显未完成的英文从句等截断线索；命中时自动回退 RSS，failureCode 分别为 challenge-page / x-truncated。普通来源与 AIHOT 均在最终标题和风险说明标注“仅基于摘要”，不会用验证页覆盖有效 RSS。检测是保守启发式，不保证识别所有截断；短帖不因字数少直接判失败，精读仍须核对内容边界。旧 AIHOT 成功缓存也重新检查文本，避免沿用已知坏结果。
 
 成功时 fullContent 保存原文，fullContentMeta 保存 originalUrl/discoveryUrl/fetchedFrom，RSS content 和已评审名单保持不变。失败、无法提取正文或缺明确原文链接时保留 RSS 摘要，summaryOnly=true，并在精读提示、最终标题和风险说明中标注“仅基于摘要”。摘要证据不足以完成质量要求时停止该篇，不凑句数。若原文与 RSS 摘要关键事实矛盾或指向不同文章，Agent 必须停止该篇并返回评审复核，不能把网页请求成功当成事实一致性验证。
 

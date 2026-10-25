@@ -54,3 +54,5 @@ policy 1.1.0 将发现渠道与发布方配额分开。AIHOT 仅从 RSS HTML 中
 每条参与配额的决策保存 sourceQuota.key/limit/basis 供审计。旧策略没有 aggregatorSources 时沿用 source 字段配额，以保持旧快照可回放。抓取兼容榜单仍是发现排序，正式选稿必须使用完整 candidates，不能把它当成最终配额结果。
 
 AIHOT 原文补抓仅适用于已评审 Tier1，单次请求、15 秒超时、禁止自动重定向及重试。fullContentMeta 记录原文链接、发现链接、抓取状态与失败原因；同一 enriched 快照可复用。后续合并与摘要校验须使用 fetch-enriched.json 保留来源边界；record 继续使用原选稿文件。网页与 RSS 的语义一致性由精读 Agent 复核，发现矛盾返回评审，不自动修改已绑定 packet。
+
+正文质量判定见 scripts/content-quality.js：识别安全检测页与 X 明确截断信号，错误码 challenge-page / x-truncated 经 fullContentMeta 传到精读与最终摘要。普通源回退也标注“仅基于摘要”。scripts/fixtures/content-quality-2026-10-25.json 保存实跑提取文本（非原始 HTML），测试用合成 HTML 包装复现提取链路。短文本不等于截断，检测不替代人工语义核验。

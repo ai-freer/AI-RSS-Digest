@@ -12,6 +12,7 @@
 const path = require('path');
 const { JSDOM } = require('jsdom');
 const { Readability } = require('@mozilla/readability');
+const { assertUsableContent } = require('./content-quality');
 const { USER_AGENT } = require('./project-meta');
 const {
   parseCliArgs,
@@ -61,7 +62,7 @@ function extractReadableText(html, url) {
     if (!text) {
       throw new Error('Readability returned empty content');
     }
-    return text;
+    return assertUsableContent(text, url, html);
   } finally {
     dom.window.close();
   }
@@ -74,6 +75,8 @@ function withFallbackContent(article, fetchedFrom = 'rss-fallback') {
     fullContent: fallbackContent,
     fullContentMeta: {
       fetchedFrom,
+      summaryOnly: fetchedFrom === 'rss-fallback',
+      ...(fetchedFrom === 'rss-fallback' ? { label: '仅基于摘要' } : {}),
       charCount: fallbackContent.length
     }
   };
@@ -101,7 +104,10 @@ async function enrichArticle(article, { selectedTier1 = false } = {}) {
       if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password ||
           host === 'aihot.news' || host.endsWith('.aihot.news') || host === 'aihot.virxact.com' || host.endsWith('.aihot.virxact.com')) throw new Error('invalid-original-link');
       if (article.fullContentMeta?.originalUrl === url.href &&
-          ['original-web', 'rss-fallback'].includes(article.fullContentMeta.fetchedFrom)) return article;
+          ['original-web', 'rss-fallback'].includes(article.fullContentMeta.fetchedFrom)) {
+        if (article.fullContentMeta.fetchedFrom === 'original-web') assertUsableContent(article.fullContent, url.href);
+        return article;
+      }
       // One request, no retries or redirect-following into AIHOT pages.
       const html = await fetchHtml(url.href, CONFIG.TIMEOUT_MS, 'error');
       const fullContent = extractReadableText(html, url.href);
@@ -113,7 +119,7 @@ async function enrichArticle(article, { selectedTier1 = false } = {}) {
       const fallback = withFallbackContent(article);
       return { ...fallback, fullContentMeta: { ...fallback.fullContentMeta,
         originalUrl: url?.href || null, discoveryUrl: article.link, summaryOnly: true,
-        label: '仅基于摘要', error: safeText(error.message, 'Original fetch failed')
+        label: '仅基于摘要', failureCode: error.code || 'original-fetch-failed', error: safeText(error.message, 'Original fetch failed')
       } };
     }
   }
@@ -121,7 +127,10 @@ async function enrichArticle(article, { selectedTier1 = false } = {}) {
     return { ...article, fullContent: article.content, fullContentMeta: { fetchedFrom: 'official-index-cache', charCount: article.content.length } };
   }
   if (article.contentMeta?.fetchedFrom === 'web' && article.contentMeta.url === article.link && safeText(article.content)) {
-    return { ...article, fullContent: article.content, fullContentMeta: article.contentMeta };
+    try {
+      assertUsableContent(article.content, article.link);
+      return { ...article, fullContent: article.content, fullContentMeta: article.contentMeta };
+    } catch (_) { /* Re-fetch: an old cached supplement may itself be a challenge page. */ }
   }
 
   const link = safeText(article.link, '');
@@ -144,7 +153,8 @@ async function enrichArticle(article, { selectedTier1 = false } = {}) {
     return {
       ...withFallbackContent(article),
       fullContentMeta: {
-        fetchedFrom: 'rss-fallback',
+        fetchedFrom: 'rss-fallback', summaryOnly: true, label: '仅基于摘要',
+        failureCode: error.code || 'web-fetch-failed',
         charCount: safeText(article.content || article.rawContent, '').length,
         error: safeText(error.message, 'Unknown error')
       }

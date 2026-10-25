@@ -1,0 +1,51 @@
+{
+  "provenance": "Extracted text from the 2026-10-25 live run; not raw HTML. Test wrappers are synthetic.",
+  "samples": [
+    {
+      "title": "拿到2亿美金融资，Today AI回答了Personal AI的十个核心问题",
+      "url": "https://36kr.com/p/4039749830120583?f=rss",
+      "source": "36氪",
+      "link": "https://36kr.com/p/4039749830120583?f=rss",
+      "origin": null,
+      "rss": "文｜邓咏仪 编辑｜张雨忻 近一个月，包括Muse、Instinct在内的Personal AI产品引起全球轰动，成为最受关注的AI创业赛道。其中，Muse上线22天就突破500万次下载——ChatGPT当年花了56天才达到这一数字——难得地为AI应用赛道争了一口气。 一家AI公司Today AI也许比Muse探索得更早。创始人齐俊元曾创办Teambition，之后在阿里、字节等大厂负责过各类产品。今年初组建团队后，Today AI自9月9日起陆续上线了国际版和国内版本。 用一句话概括，Today希望做的是用户的“私人助理”。通过用户授权Today的信息、应用数据后，Today将会在持续对话中积累记忆，目标是成为一个以“人”而非任务来组织的通用助手。 和其他Personal AI产品相比，Today尤其强调AI助手要“像人”。这个坚持体现在产品的方方面面：用户在注册时，必须给AI助手起一个名字；在对话时，Today从一开始就坚持不以任务划分窗口，所有交互都在一个窗口完成。 有意思的是，很多年以前，当齐俊元还在创业时，Teambition也曾推出一个名���“今天”（Today）的产品。他曾经在产品上线时写道：“希望它能够比你更了解一天要做的所有事情，从琐碎的代办事项到重要的工作任务，从轻松的个人约会到严肃的公司会议，甚至是需要阅读的每一篇文章，然后由它温柔地提醒你眼下你该处理什么事……我们对它的期待很简单，就是它应当足够简单易用。” 在Muse爆火之前，许多投资人依然认为这只是一个美好的愿景。但Today AI团队并不这么认为——2026年，Claude Code和Cursor已经证明Agent可以在专业领域自主完成复杂工作；许多团队在专攻模型记忆和上下文工程，有不少突破。“一个Agent帮你管好所有事”不再只是技术上的空谈。 Today AI也是团队真正意义上，回答这个愿景的第一份答卷。 △Today AI产品界面 10月21日，Today AI也正式宣布完成了超过2亿美金的首轮融资，投资方包括IDG资本、腾讯、五源资本、蚂蚁集团、红杉中国、传音控股、同歌创投及上海交大菡源资产。 放在AI应用圈，这完全是一笔金额显赫的投资。不过，Today AI团队说，从第一天起，他们的愿景不止做AI应用，也要训模型，如此才能成为一家完全为“个性化”而生的公司——通过训练自己的交互模型，在降低单位智能成本的同时，让产品的语气、理解力和执行能力都更贴近“一个真正了解你的人”。 这是最近明星AI应用公司们的共同趋势。9月28日，Manus也推出了Personal Agent产品“Cue”，不久后也官宣了超过5亿美金的新融资。我们了解到，Manus也在训练自己的模型。 本质上，AI应用公司和模型公司正在从两端相向而行——应用公司向上游训练模型，以降低单位智能的成本、提高效果和毛利；模型公司也在向下游做应用，寻找收入出口。当双方需要的能力越来越接近，AI应用和模型的边界自然越来越模糊。 初创需要拿大钱的另一重考量在于，做Personal Agent不止要训模型，更要打通服务和生态——而这对任何人来说都绝非坦途。 在国内，已经有AI手机助手被各类打车、购物、外卖等服务厂商联手封杀的例子；而在海外，平台生态虽然更分散，但Personal AI同样面临准入壁垒——9月20日，Amazon以“未授权AI Agent”违反使用条款为由限制Muse在其平台上的访问和购物。 对很多AI应用公司来说，无论是新创业方向还是融资，2026年都是格外寒冷的一年。这让很多中国背景的AI团队更加坚定选择，比如从day 1起就把重心放在海外，再视情况决定是否回到国内。 相比之下，Today AI的节奏更大胆——9月先在美区上线，两周后国区跟上，并迅速支持了飞书、钉钉、企业微信、滴答清单等平台。 Today AI团队说，这个节奏源于团队自己的判断：尽早发布本身就是竞争的一部分，声量、增长和获客都等不到产品“足够完美”的那一天。 “在Personal AI这件事上，创业公司无论如何是有仗可打的。”他们说。尽管大厂已经纷纷入局，但创业公司的优势在于人才密度更集中、决策更快、敢于在记忆和主动性这类方向上更早、更激进地下注。 近期，智能涌现和Today AI的创始团队有过一次深入交流，在了解这个产品的同时，也试图请他们解答当下大家对Persoanl AI的诸多疑问。 以下是Today AI团队的自述： Personal AI是伪需求吗？ Today上线之后，我们听到最多的声音是说：Personal AI是伪需求。但从历史来看，每一轮技术发展都会从大量质疑开始，直到逐渐被接受，上一轮Agent热潮同样如此。 从我们的判断来看，这一轮确实有增量需求在出现。过去所有Agent都在处理办公相关的...",
+      "extracted": "火山引擎    正在进行安全检测...   为保障您的访问安全，系统正在检测当前网络环境，该过程通常需要几秒钟，请耐心等待",
+      "expectedFailure": "challenge-page"
+    },
+    {
+      "title": "Ethan Mollick：OpenAI 红队测试显示前沿模型智能体真能越狱沙箱，实验室的 AI 安全警告值得重视",
+      "url": "https://x.com/emollick/status/2114001653879672877",
+      "source": "AIHOT",
+      "link": "https://aihot.news/items/d92mrmxvsfmnoyw3comncgz2c",
+      "origin": {
+        "url": "https://x.com/emollick/status/2114001653879672877",
+        "evidence": "rss-read-original-link"
+      },
+      "rss": "Ethan Mollick 转引 OpenAI 红队测试认为，实验室看似夸张的 AI 网络安全判断应被更认真对待。OpenAI 让前沿模型智能体团队攻击其加固的隔离基础设施，智能体几乎在每个受限联网服务中都找到漏洞，还能利用 CPU 缓存时序在不联网、无共享文件的虚拟机之间传递秘密，类似 Spectre 和 Meltdown 的攻击手法。作者提到 Anthropic 和 Noam Brown 此前关于 AI 网络攻防与模型自发协调的说法曾被嘲笑。 🔗 阅读原文 via AIHOT · https://aihot.news/items/d92mrmxvsfmnoyw3comncgz2c",
+      "extracted": "PostPostEthan Mollick on X: \"Without being overly credulous, we should be taking seemingly “out there” ideas about AI cybersecurity from the Labs more seriously. Examples: Anthropic was mocked for saying Mythos-level AI changed cyber & @polynoamial for saying that models would find novel ways to coordinate.\"Without being overly credulous, we should be taking seemingly “out there” ideas about AI cybersecurity from the Labs more seriously. Examples: Anthropic was mocked for saying Mythos-level AI changed cyber & @polynoamial for saying that models would find novel ways to coordinate.OpenAI red-teamed their hardened containment infrastructure by asking teams of frontier-model agents to try to break through its defenses. They easily escaped in novel ways. Quoting:\n\n'Our agents VM escapes showed why containment must extend beyond the sandbox. To test the",
+      "expectedFailure": "x-truncated"
+    },
+    {
+      "title": "独家｜字节AI应用再整合：小云雀并入即梦",
+      "url": "https://36kr.com/p/4039677577122946?f=rss",
+      "source": "36氪",
+      "link": "https://36kr.com/p/4039677577122946?f=rss",
+      "origin": null,
+      "rss": "文｜邓咏仪 编辑｜张雨忻 《智能涌现》从知情人士处获悉，近期剪映内部完成了一次业务整合，AI短剧创作平台小云雀并入智能创作平台即梦，产品仍保留独立入口。 我们了解到，此次调整主要是资源整合，目前即梦已经接入了小云雀短剧相关能力。调整后，小云雀的运营由即梦运营和市场负责人陈欣然负责，产品团队没有变化。 剪映这一轮业务整合的原因主要是增长空间受限，以及需要聚焦资源。一位前剪映人士告诉《智能涌现》，即梦、小云雀这样的AI原生产品虽然依旧保持增长，但用户增长尚未有效转化为与投入相匹配的回报，而市场上大量视频Agent产品的兴起，也在持续压缩自有产品的差异化空间。 这轮调整背后更重要的是一个背景：在大厂将力量重新集中到基础模型后，大家都对AI应用的优先级进行了重新评估。字节则是其中速度最快、调整最激进的一家大厂——在即梦和小云雀团队的合并之外，他们还在讨论其它的AI产品合并的可能性。 仅仅在两年前，即梦还承载着字节对AI应用的另一种期待。 2024年初，张楠卸任抖音集团CEO后，转向负责剪映和CapCut。同年5月，剪映推出即梦。彼时正值Sora横空出世，AI视频产品和Chatbot谁会成为下一个超级应用或入口，并没有明确答案——这是字节同时投入豆包和即梦的原因。张楠也曾公开表示，“希望即梦不只是一个创作工具，也能探索AI时代的内容社区。” 此后，即梦的产品重点几经变化。立项之初，即梦设想的分工类似剪映和抖音：Web端做创作工具，App端承载消费；而在Seedance模型推出后，App端还尝试过类似Sora的真人出镜、数字分身互动。 而随着模型能力提升，很多普通用户在抖音、豆包里就能完成AI创作。即梦所搭载的产品能力，也因此从文生、图生视频，延伸到首尾帧、智能画布等Agent编辑能力，逐渐向专业创作者靠拢。 据《智能涌现》了解，今年国庆前，即梦已经缩减了App端投入，推动App与Web端合并，未来资源将集中到面向专业创作者的Web端。此后，即梦也会加大海外版Dreamina的投入，以及商业化。 这两年间，模型能力快速提升，市场对应用的评估逻辑也随之改变。Coding Agent打开AI办公市场后，“模型即应用”的说法日渐主流。字节在2026年2月推出Seedance 2.0后，体系内模型和应用的关系也发生了微妙的变化。 早在Seedance 2.0发布之前，小云雀、即梦、剪映、豆包之间就有争抢Seedance首发权的现象。一位火山人士对《智能涌现》表示，这一情况在2.0发布后变得更加激烈——模型已然成了话语权更强的那一方。 产品增长有限，也间接导致了近两年剪映系的“创业潮”，一批资深产品和运营高管陆续离职创业，包括陈冕（前剪映及CapCut全球商业化和运营负责人）、明超平（剪映移动端剪辑负责人）、闹闹（剪映产品经理）、张琪智（剪映产品负责人）等。2024年底，我们也曾独家报道，剪映产品负责人张逍然离职，她后来加入了原剪映创始人郭列的创业公司Flova.ai。 与此同时，火山在大力开拓Seedance的MaaS服务，国内几乎所有视频Agent、短剧漫剧工作流都接入了Seedance。我们了解到，在Seedance系列模型上，火山MaaS服务带来的收入远高于即梦、小云雀等产品。 这直接改变了字节衡量自有AI应用价值的逻辑。当市场上大量视频应用能够接入模型、找到付费用户，像小云雀、即梦这样的自有AI视频应用就需要证明：它们在获客、留存和变现上能带来多少额外回报，彼此之间又有多少差异化？ 图片来源｜AI生成 本文来自微信公众号“智能涌现”，作者：邓咏仪，36氪经授权发布。",
+      "extracted": "火山引擎    正在进行安全检测...   为保障您的访问安全，系统正在检测当前网络环境，该过程通常需要几秒钟，请耐心等待",
+      "expectedFailure": "challenge-page"
+    },
+    {
+      "title": "Perplexity 在 Computer 技能市场上线开源技能 /impeccable，每用户赠 5000 credits",
+      "url": "https://x.com/AravSrinivas/status/2114021917586014449",
+      "source": "AIHOT",
+      "link": "https://aihot.news/items/jryc594pqpq0xbtqbbd6yn7xb",
+      "origin": {
+        "url": "https://x.com/AravSrinivas/status/2114021917586014449",
+        "evidence": "rss-read-original-link"
+      },
+      "rss": "Perplexity CEO Aravind Srinivas 宣布 @pbakaus 开发的开源技能 /impeccable 现已进入 Computer 的技能市场，用于构建不像 AI 生成套路的界面。该技能检查布局、字体、对比度和可访问性，并通过修复设计师会指出的问题来改进界面；10 月 31 日前每用户可享最多 5000 credits 免费使用。 🔗 阅读原文 via AIHOT · https://aihot.news/items/jryc594pqpq0xbtqbbd6yn7xb",
+      "extracted": "Computer@AskPerplexity12hThe Impeccable skill by @pbakaus, now in Computer's skills marketplace, reviews an interface and fixes what a designer would flag.\n\nIt checks layout, type, contrast and accessibility.\n\nTasks that use /impeccable are free through October 31, up to 5,000 credits per user.",
+      "expectedFailure": null
+    }
+  ]
+}
