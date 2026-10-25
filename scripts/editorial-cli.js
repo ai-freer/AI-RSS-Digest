@@ -17,13 +17,29 @@ async function run(argv = process.argv) {
     retrospective: ['ledgerFile', 'outFile']
   };
   if (!allowed[command]) throw new Error('Usage: editorial-cli.js supplement|prepare|select|record|evaluate|retrospective --...');
-  for (const key of Object.keys(args)) if (!allowed[command].includes(key)) throw new Error(`Unknown option: --${key}`);
+  for (const key of Object.keys(args)) {
+    if (!allowed[command].includes(key)) throw new Error(`Unknown option: --${key}`);
+    ensureValue(args[key], key);
+  }
   const read = key => { ensureValue(args[key], key); return readJsonFile(path.resolve(args[key])); };
   const ledgerFile = path.resolve(args.ledgerFile || path.join(os.homedir(), '.local', 'share', 'ai-rss-digest', 'ledger.json'));
+  let ledgerDiagnostics;
   const loadLedger = () => {
-    const ledger = fs.existsSync(ledgerFile) ? readJsonFile(ledgerFile) : EMPTY_LEDGER;
-    validateLedger(ledger);
-    return ledger;
+    const exists = fs.existsSync(ledgerFile);
+    ledgerDiagnostics = { ledgerFile, pathSource: args.ledgerFile ? 'explicit' : 'default',
+      status: exists ? 'loaded' : 'missing', editions: 0, recentEditions: 0,
+      warning: exists ? null : 'Ledger missing: starting with empty history; verify persistent path if this is not the first edition.' };
+    try {
+      const ledger = exists ? readJsonFile(ledgerFile) : EMPTY_LEDGER;
+      validateLedger(ledger);
+      ledgerDiagnostics.editions = ledger.editions.length;
+      ledgerDiagnostics.recentEditions = ledger.editions.filter(e => Date.parse(e.recordedAt) >= Date.now() - 7 * 86400000).length;
+      return ledger;
+    } catch (error) {
+      ledgerDiagnostics.status = 'invalid';
+      ledgerDiagnostics.warning = 'Ledger cannot be loaded; refusing to reset history.';
+      throw error;
+    } finally { process.stderr.write(`[ledger] ${JSON.stringify(ledgerDiagnostics)}\n`); }
   };
   if (command === 'supplement') {
     const { supplement } = require('./supplement-candidates');
@@ -35,7 +51,7 @@ async function run(argv = process.argv) {
     if (path.resolve(args.outFile) === path.resolve(args.promptFile)) throw new Error('Packet and prompt need separate files');
     const policy = readJsonFile(args.policyFile || path.join(__dirname, '..', 'editorial-policy.json'));
     const template = fs.readFileSync(path.join(__dirname, '..', 'templates', 'prompt-editorial.md'), 'utf8');
-    const packet = prepare(read('fetchFile'), policy, template, loadLedger());
+    const packet = prepare(read('fetchFile'), policy, template, loadLedger(), undefined, ledgerDiagnostics);
     writeJsonOutput(packet, args.outFile);
     const { localDecisions, ...promptPacket } = packet;
     promptPacket.localDecisionCounts = localDecisions.reduce((counts, row) => {
@@ -63,7 +79,7 @@ async function run(argv = process.argv) {
       fs.writeFileSync(temp, `${JSON.stringify(ledger, null, 2)}\n`);
       fs.renameSync(temp, ledgerFile);
       const every = selected.editorial.policy.reviewEveryEditions;
-      writeJsonOutput({ ledgerFile, editions: ledger.editions.length, retrospectiveDue: ledger.editions.length % every === 0 });
+      writeJsonOutput({ ledgerDiagnostics: { ...ledgerDiagnostics, status: 'saved', loadedStatus: ledgerDiagnostics.status, savedEditions: ledger.editions.length }, ledgerFile, editions: ledger.editions.length, retrospectiveDue: ledger.editions.length % every === 0 });
     } finally {
       fs.closeSync(fd);
       if (fs.existsSync(temp)) fs.unlinkSync(temp);
@@ -77,7 +93,7 @@ async function run(argv = process.argv) {
     const sourceCounts = {};
     for (const edition of editions) for (const event of edition.events) sourceCounts[event.source] = (sourceCounts[event.source] || 0) + 1;
     const template = fs.readFileSync(path.join(__dirname, '..', 'templates', 'prompt-retrospective.md'), 'utf8');
-    writeTextOutput(`${template}\n\n${JSON.stringify({ editions, sourceCounts }, null, 2)}\n`, args.outFile);
+    writeTextOutput(`${template}\n\n${JSON.stringify({ ledgerDiagnostics, editions, sourceCounts }, null, 2)}\n`, args.outFile);
   }
 }
 

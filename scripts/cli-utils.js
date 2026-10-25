@@ -6,6 +6,11 @@ function parseCliArgs(argv) {
   for (let i = 2; i < argv.length; i += 1) {
     const token = argv[i];
     if (!token.startsWith('--')) continue;
+    const equals = token.indexOf('=');
+    if (equals !== -1) {
+      args[token.slice(2, equals)] = token.slice(equals + 1);
+      continue;
+    }
     const key = token.slice(2);
     const next = argv[i + 1];
     if (!next || next.startsWith('--')) {
@@ -19,7 +24,7 @@ function parseCliArgs(argv) {
 }
 
 function ensureValue(value, name) {
-  if (value === undefined || value === null || value === '') {
+  if (value === undefined || value === null || value === '' || typeof value === 'boolean') {
     throw new Error(`Missing required value: ${name}`);
   }
 }

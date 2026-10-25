@@ -152,7 +152,9 @@ test('CLI prepare/select/record/evaluate/retrospective runs offline', () => {
     cli('select', '--packetFile', file('packet.json'), '--reviewFile', file('review.json'), '--outFile', file('selection.json'));
     const s = JSON.parse(fs.readFileSync(file('selection.json'))); write('summary.json', summary(s));
     fs.writeFileSync(file('output.md'), '# Offline fixture');
-    cli('record', '--selectionFile', file('selection.json'), '--summaryFile', file('summary.json'), '--outputFile', file('output.md'), '--ledgerFile', file('ledger.json'));
+    const recorded = JSON.parse(cli('record', '--selectionFile', file('selection.json'), '--summaryFile', file('summary.json'), '--outputFile', file('output.md'), '--ledgerFile', file('ledger.json')));
+    assert.equal(recorded.ledgerDiagnostics.status, 'saved');
+    assert.equal(recorded.ledgerDiagnostics.savedEditions, 1);
     write('gold.json', [{ id: p.candidates[0].id, label: 'select' }]);
     cli('evaluate', '--selectionFile', file('selection.json'), '--goldFile', file('gold.json'), '--outFile', file('metrics.json'));
     cli('retrospective', '--ledgerFile', file('ledger.json'), '--outFile', file('retrospective.md'));

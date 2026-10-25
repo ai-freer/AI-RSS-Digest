@@ -32,12 +32,13 @@ function safeText(value, fallback = '') {
   return text || fallback;
 }
 
-async function fetchHtml(url, timeoutMs = CONFIG.TIMEOUT_MS) {
+async function fetchHtml(url, timeoutMs = CONFIG.TIMEOUT_MS, redirect = 'follow') {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(url, {
       signal: controller.signal,
+      redirect,
       headers: {
         'User-Agent': CONFIG.USER_AGENT
       }
@@ -88,9 +89,33 @@ function isAihotArticle(article) {
   }
 }
 
-async function enrichArticle(article) {
+async function enrichArticle(article, { selectedTier1 = false } = {}) {
   if (isAihotArticle(article)) {
-    return withFallbackContent(article, 'rss');
+    if (!selectedTier1) return withFallbackContent(article, 'rss');
+    const origin = article.origin;
+    let url;
+    try {
+      if (origin?.evidence !== 'rss-read-original-link') throw new Error('missing-original-link');
+      url = new URL(origin.url);
+      const host = url.hostname.toLowerCase().replace(/^www\./, '');
+      if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password ||
+          host === 'aihot.news' || host.endsWith('.aihot.news') || host === 'aihot.virxact.com' || host.endsWith('.aihot.virxact.com')) throw new Error('invalid-original-link');
+      if (article.fullContentMeta?.originalUrl === url.href &&
+          ['original-web', 'rss-fallback'].includes(article.fullContentMeta.fetchedFrom)) return article;
+      // One request, no retries or redirect-following into AIHOT pages.
+      const html = await fetchHtml(url.href, CONFIG.TIMEOUT_MS, 'error');
+      const fullContent = extractReadableText(html, url.href);
+      return { ...article, fullContent, fullContentMeta: {
+        fetchedFrom: 'original-web', originalUrl: url.href, discoveryUrl: article.link,
+        summaryOnly: false, charCount: fullContent.length
+      } };
+    } catch (error) {
+      const fallback = withFallbackContent(article);
+      return { ...fallback, fullContentMeta: { ...fallback.fullContentMeta,
+        originalUrl: url?.href || null, discoveryUrl: article.link, summaryOnly: true,
+        label: '仅基于摘要', error: safeText(error.message, 'Original fetch failed')
+      } };
+    }
   }
   if (require('./candidate-readiness').isDiscoveredLongform(article) && safeText(article.content)) {
     return { ...article, fullContent: article.content, fullContentMeta: { fetchedFrom: 'official-index-cache', charCount: article.content.length } };
@@ -151,7 +176,11 @@ async function main({ params }) {
   const topArticles = Array.isArray(fetchData.topArticles) ? fetchData.topArticles : [];
   const otherTopArticles = Array.isArray(fetchData.otherTopArticles) ? fetchData.otherTopArticles : [];
 
-  const enrichedTopArticles = await mapWithConcurrency(topArticles, enrichArticle, CONFIG.CONCURRENCY);
+  if (topArticles.some(isAihotArticle) && fetchData.editorialStatus !== 'reviewed') {
+    throw new Error('AIHOT original fetching requires reviewed Tier1 selection');
+  }
+  const enrichedTopArticles = await mapWithConcurrency(topArticles,
+    article => enrichArticle(article, { selectedTier1: fetchData.editorialStatus === 'reviewed' }), CONFIG.CONCURRENCY);
 
   const enriched = {
     ...fetchData,
@@ -164,6 +193,7 @@ async function main({ params }) {
         concurrency: CONFIG.CONCURRENCY,
         timeoutMs: CONFIG.TIMEOUT_MS,
         fetchedFromWeb: enrichedTopArticles.filter(a => a.fullContentMeta?.fetchedFrom === 'web').length,
+        fetchedFromOriginal: enrichedTopArticles.filter(a => a.fullContentMeta?.fetchedFrom === 'original-web').length,
         fromRss: enrichedTopArticles.filter(a => a.fullContentMeta?.fetchedFrom === 'rss').length,
         fallbackToRss: enrichedTopArticles.filter(a => a.fullContentMeta?.fetchedFrom === 'rss-fallback').length
       }

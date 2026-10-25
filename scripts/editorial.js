@@ -39,7 +39,7 @@ function sealPacket(packet) {
   return hash(payload);
 }
 
-function prepare(fetchData, policy, template, ledger = EMPTY_LEDGER, now = new Date().toISOString()) {
+function prepare(fetchData, policy, template, ledger = EMPTY_LEDGER, now = new Date().toISOString(), ledgerDiagnostics = null) {
   validatePolicy(policy);
   validateLedger(ledger);
   assert(Array.isArray(fetchData.candidates), 'Fetch again with v4: full candidates array is required');
@@ -65,7 +65,7 @@ function prepare(fetchData, policy, template, ledger = EMPTY_LEDGER, now = new D
     schemaVersion: 2, createdAt: now, date: fetchData.date || now.slice(0, 10),
     policy, promptHash: hash(template), ledgerHash: hash(ledger), history, candidates: reviewable, localDecisions,
     candidateCount: candidates.length, diagnostics: coverageDiagnostics(candidates),
-    acquisitionDiagnostics: fetchData.diagnostics || null
+    acquisitionDiagnostics: fetchData.diagnostics || null, ledgerDiagnostics
   };
   return { ...packet, packetId: sealPacket(packet) };
 }

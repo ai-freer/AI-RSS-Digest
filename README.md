@@ -55,6 +55,10 @@ These are offline behavior checks, not proof of improved editorial accuracy. The
 
 Version 4.1 uses XML DOM parsing, reports body coverage, and keeps local pending/deferred records outside model prompts. Every original candidate remains accountable. Low body coverage or pending-input is a collection/material issue, not evidence that no worthwhile articles exist.
 
+4.3.0: Fetch explicit original links once for reviewed AIHOT Tier1 articles; preserve RSS evidence and label failed or unavailable originals as summary-only.
+
+4.2.1: Fix Chinese sentence boundaries and reject summaries still too short after rebuilding; accept both CLI argument styles and expose ledger loading diagnostics without changing the default path.
+
 4.2.0: Incrementally discover Paul Graham essays from the official index: baseline first, new bodies only, persistent retry/cache, and explicit newly discovered longform review without invented publication dates.
 
 4.1.2: Pause the stale Paul Graham feed while retaining its definition and reason; daily fetching and quality monitoring skip disabled feeds.

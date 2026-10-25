@@ -8,7 +8,7 @@
 | editorial-packet.json | 候选/策略/提示词哈希/近七天历史/ledgerHash/packetId |
 | editorial-review.json | 可评审 candidates 的所有 ID 恰好一次，真实 reviewer/reviewedAt，与 packetId 匹配 |
 | fetch-selected.json | 兼容 topArticles/otherTopArticles；完整 editorial.decisions 和统计 |
-| fetch-enriched.json | Tier1 全文；AIHOT 仅 RSS |
+| fetch-enriched.json | Tier1 全文；AIHOT 按明确原文链接补抓，失败回退 RSS 并标注仅基于摘要 |
 | deep-read-results.json / tier2-raw.json | 精读和速览；保持链接/层级/顺序 |
 | summary.json / output.* | 经质量闸门的摘要和格式化产物 |
 | ledger.json | 安装目录外持久历史，成功后原子写入 |
@@ -52,3 +52,5 @@ coverageDiagnostics 在至少 10 条且正文覆盖率低于 20% 时告警；原
 policy 1.1.0 将发现渠道与发布方配额分开。AIHOT 仅从 RSS HTML 中唯一且明确标为“阅读原文”的外部 HTTP(S) 链接提取 origin；普通引用链接、歧义链接和站内链接不推测归属。按 hostname（去 www）计数，X/Twitter 的明确 status 链接按账号计数。相同发布方直采与聚合共享 maxPerSource=3；未知 AIHOT 发布方的独立桶默认上限 6，可配置。不同子域暂不推断为同一媒体集团，跨账号同一实体也不自动合并，仍以事件去重约束重复报道。
 
 每条参与配额的决策保存 sourceQuota.key/limit/basis 供审计。旧策略没有 aggregatorSources 时沿用 source 字段配额，以保持旧快照可回放。抓取兼容榜单仍是发现排序，正式选稿必须使用完整 candidates，不能把它当成最终配额结果。
+
+AIHOT 原文补抓仅适用于已评审 Tier1，单次请求、15 秒超时、禁止自动重定向及重试。fullContentMeta 记录原文链接、发现链接、抓取状态与失败原因；同一 enriched 快照可复用。后续合并与摘要校验须使用 fetch-enriched.json 保留来源边界；record 继续使用原选稿文件。网页与 RSS 的语义一致性由精读 Agent 复核，发现矛盾返回评审，不自动修改已绑定 packet。

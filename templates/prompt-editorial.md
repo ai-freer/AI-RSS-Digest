@@ -19,7 +19,7 @@
 ## 相关性与类型
 
 relevance = pass（相关）/ block（明确无关）/ unknown（无法判断）。material = sufficient / insufficient。
-type 必须从 policy.weights 选择：release（发布）、research（研究）、tutorial（教程/工具用法）、analysis（深度分析）、industry（行业事件）。
+**没有 news 类型。** type 必须从 policy.weights 选择：release（发布）、research（研究）、tutorial（教程/工具用法）、analysis（深度分析）、industry（行业事件）。
 
 ## 五维评分：每项整数 0–5
 
@@ -83,3 +83,9 @@ block/unknown/insufficient 也必须填写 id、relevance、material、type、sc
 ## 聚合源配额
 
 source 表示发现渠道；origin 是抓取脚本从 AIHOT RSS 的“阅读原文”链接提取的归属证据。不要自行编造或修改 origin。程序按原始站点（X/Twitter 按账号）执行配额，AIHOT 不统一压成 3 篇。原始链接不是独立事实验证，也不能替代事件去重或直接认定 primary。
+
+## 引文与局部重跑
+
+所有 evidence、provenanceEvidence、noveltyEvidence 从本轮 packet.candidates 对应 content 原样复制连续片段，必须精确子串匹配，空格、换行、标点均保持一致。JSON 中用合法转义表达换行；解析后的字符必须一致。不要重排空白、润色或使用省略号拼接非连续片段。
+
+仅类型或引文有误：保持 packet/packetId，修改对应 review，重跑 select。候选正文、策略或账本变化则重新 prepare 和评审。不得改 packet 迎合错误引文。

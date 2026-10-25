@@ -47,7 +47,7 @@ async function run() {
         source: 'example',
         category: 'AI',
         summary: 'Too short.',
-        keyPoints: ['Point A'],
+        keyPoints: ['Point A', 'Point B', 'Point C'],
         action: '',
         risk: ''
       }

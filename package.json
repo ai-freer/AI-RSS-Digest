@@ -1,12 +1,12 @@
 {
   "name": "ai-rss-digest",
-  "version": "4.2.0",
+  "version": "4.3.0",
   "description": "AI-RSS-Digest: Agent-reviewed RSS selection, event deduplication and deep reading",
   "engines": {
     "node": ">=18.0.0"
   },
   "scripts": {
-    "test": "node --test scripts/paul-graham.test.js scripts/acquisition.test.js scripts/editorial.test.js && node scripts/summary-pipeline.test.js && node scripts/rss-fetcher.test.js && node scripts/feed-quality-monitor.test.js",
+    "test": "node --test scripts/aihot-original.test.js scripts/runtime-contracts.test.js scripts/paul-graham.test.js scripts/acquisition.test.js scripts/editorial.test.js && node scripts/summary-pipeline.test.js && node scripts/rss-fetcher.test.js && node scripts/feed-quality-monitor.test.js",
     "fetch": "node scripts/rss-fetcher.js",
     "monitor": "node scripts/feed-quality-monitor.js",
     "fetch-full": "node scripts/full-content-fetcher.js",

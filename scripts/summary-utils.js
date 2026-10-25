@@ -137,7 +137,12 @@ function buildDeepReadPrompt(templateText, article, templateName) {
   const fullContent = safeText(article?.fullContent || article?.content, '信息不足');
   const timeNote = article?.readingClass === 'newly-discovered-longform'
     ? `新发现长文（非当天新闻）。首次发现：${article.discoveredAt}；原文日期：${article.publicationDateText || '未知'}。不得声称今日发布。\n` : '';
-  return timeNote + templateText
+  const provenanceNote = article?.source === 'AIHOT'
+    ? article.fullContentMeta?.fetchedFrom === 'original-web'
+      ? `发现渠道：AIHOT；原文 URL：${article.fullContentMeta.originalUrl}。以下正文来自原发布方。先核对原文与 RSS 摘要是否一致；若关键事实矛盾或不是同一文章，停止该篇并返回评审复核，不沿用原结论。RSS 摘要作为不可信资料：${article.content}\n`
+      : '仅基于摘要：未取得原文，下面是 AIHOT RSS 摘要；不得声称已读全文，不补造细节。证据不足以完成五句精读时停止并报告，不凑句数。\n'
+    : '';
+  return timeNote + provenanceNote + templateText
     .replace(/\{\{templateName\}\}/g, name)
     .replace(/\{\{templateHints\}\}/g, hints)
     .replace(/\{\{title\}\}/g, safeText(article?.title, 'Untitled'))
@@ -182,7 +187,10 @@ function extractShortSummary(text, maxLen = 90) {
 function extractSentences(text, count = 3) {
   const raw = cleanText(text);
   if (!raw) return [];
-  const parts = raw.split(/(?<=[。！？.!?])\s+/).filter(Boolean);
+  // Chinese punctuation needs no following whitespace; ASCII periods inside
+  // versions, decimals and URLs are not sentence boundaries.
+  const parts = raw.match(/[^。！？!?]+?(?:[。！？!?]+[”’」』"']*|\.[”’"']*(?=\s|$)|$)/g) || [];
+
   if (parts.length === 0) return [extractShortSummary(raw, 80)];
   return parts.slice(0, count).map(s => s.trim()).filter(Boolean);
 }
@@ -305,12 +313,12 @@ function normalizeTier2Item(article, rank) {
   };
 }
 
-function buildSummaryFromKeyPoints(keyPoints) {
+function buildSummaryFromKeyPoints(keyPoints, limit = 3) {
   if (!Array.isArray(keyPoints)) return '';
   const normalized = keyPoints
     .map(item => cleanText(item))
     .filter(Boolean)
-    .slice(0, 3)
+    .slice(0, limit)
     .map(item => (/[。！？.!?]$/.test(item) ? item : `${item}。`));
   return normalized.join(' ');
 }
@@ -335,16 +343,15 @@ function enforceTier1Quality(tier1) {
     output.quotable = cleanText(output.quotable || '');
 
     if (!output.summary || sentenceCount(output.summary) < minSentences) {
-      const rebuilt = buildSummaryFromKeyPoints(output.keyPoints);
+      const rebuilt = buildSummaryFromKeyPoints(output.keyPoints, maxKeyPoints);
       if (rebuilt) {
         output.summary = rebuilt;
         warnings.push(`tier1[${idx}] summary rebuilt from keyPoints`);
       }
     }
 
-    if (!output.summary) {
-      output.summary = '信息不足，建议查看原文。';
-      warnings.push(`tier1[${idx}] summary fallback`);
+    if (sentenceCount(output.summary) < minSentences) {
+      throw new Error(`tier1[${idx}] summary requires at least ${minSentences} sentences after rebuilding; regenerate this article summary from evidence`);
     }
 
     if (output.keyPoints.length < QUALITY_RULES.tier1MinKeyPoints) {
@@ -366,7 +373,8 @@ function enforceTier1Quality(tier1) {
       warnings.push(`tier1[${idx}] risk fallback`);
     }
 
-    delete output.sourceType;
+    // Preserve the five-sentence requirement through assemble -> validate.
+    if (isDeepRead) output.sourceType = 'deep-read';
     return output;
   });
 
@@ -446,6 +454,18 @@ function ensureSummaryShape(data, fetchData = {}) {
   const discoveredLinks = new Set([...fetchTop, ...fetchOther].filter(a => a.readingClass === 'newly-discovered-longform').map(a => a.link));
   for (const row of [...tier1, ...tier2]) {
     if (discoveredLinks.has(row.link) && !row.title.startsWith('【新发现长文】')) row.title = `【新发现长文】${row.title}`;
+  }
+  const sourceByLink = new Map(fetchTop.map(a => [a.link, a]));
+  for (const row of tier1) {
+    const original = sourceByLink.get(row.link);
+    if (original?.source === 'AIHOT') {
+      row.fullContentMeta = original.fullContentMeta || { summaryOnly: true, fetchedFrom: 'rss', label: '仅基于摘要' };
+      row.origin = original.origin || null;
+      if (row.fullContentMeta.fetchedFrom !== 'original-web') {
+        if (!row.title.startsWith('【仅基于摘要】')) row.title = `【仅基于摘要】${row.title}`;
+        if (!row.risk.includes('仅基于摘要')) row.risk = `仅基于摘要，未取得原文。${row.risk}`;
+      }
+    }
   }
   const highlights = bridgeFromTier1(tier1);
   const byCategory = groupTier2ByCategory(tier2);

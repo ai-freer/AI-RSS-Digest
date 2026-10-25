@@ -80,7 +80,7 @@ test('daily collection through review and summary preserves discovery semantics 
   const enriched = await enrichArticle(selected.topArticles[0]); assert.equal(calls.length, count); assert.ok(enriched.fullContent.length);
   assert.match(buildDeepReadPrompt('{{fullContent}}', enriched, 'daily'), /新发现长文/);
   assert.match(buildPromptArticles(selected)[0].timeNote, /不等于发表时间/);
-  const normalized = ensureSummaryShape({ tier1: [{ title: 'An essay', link: article.link, source: article.source, summary: 'A'.repeat(200) }], tier2: [] }, selected);
+  const normalized = ensureSummaryShape({ tier1: [{ title: 'An essay', link: article.link, source: article.source, summary: 'First sentence. Second sentence. Third sentence.' }], tier2: [] }, selected);
   assert.match(normalized.tier1[0].title, /新发现长文/);
   for (const extra of [{ source: 'other' }, { acquisitionKind: null }, { acquiredAt: '2099-01-01' }]) {
     assert.equal(prepare({ candidates: [{ ...article, ...extra }] }, policy, 'test').candidates.length, 0);
