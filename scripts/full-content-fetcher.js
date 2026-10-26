@@ -92,6 +92,24 @@ function isAihotArticle(article) {
   }
 }
 
+function failureCode(error, fallback) {
+  return typeof error?.code === 'string' && ['challenge-page', 'x-truncated'].includes(error.code)
+    ? error.code : fallback;
+}
+
+function configuredHostSkip(article, url, original = false) {
+  const host = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+  const hosts = (process.env.AI_RSS_SKIP_ORIGIN_HOSTS || '').split(',')
+    .map(value => value.trim().toLowerCase().replace(/^www\./, '')).filter(Boolean);
+  if (!hosts.includes(host)) return null;
+  const fallback = withFallbackContent(article);
+  return { ...fallback, fullContentMeta: { ...fallback.fullContentMeta,
+    failureCode: 'origin-host-skipped', requestStatus: 'skipped',
+    reason: 'Configured host skip in this environment', skippedHost: host,
+    ...(original ? { originalUrl: url, discoveryUrl: article.link } : {})
+  } };
+}
+
 async function enrichArticle(article, { selectedTier1 = false } = {}) {
   if (isAihotArticle(article)) {
     if (!selectedTier1) return withFallbackContent(article, 'rss');
@@ -104,10 +122,13 @@ async function enrichArticle(article, { selectedTier1 = false } = {}) {
       if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password ||
           host === 'aihot.news' || host.endsWith('.aihot.news') || host === 'aihot.virxact.com' || host.endsWith('.aihot.virxact.com')) throw new Error('invalid-original-link');
       if (article.fullContentMeta?.originalUrl === url.href &&
-          ['original-web', 'rss-fallback'].includes(article.fullContentMeta.fetchedFrom)) {
+          ['original-web', 'rss-fallback'].includes(article.fullContentMeta.fetchedFrom) &&
+          article.fullContentMeta.failureCode !== 'origin-host-skipped') {
         if (article.fullContentMeta.fetchedFrom === 'original-web') assertUsableContent(article.fullContent, url.href);
         return article;
       }
+      const skipped = configuredHostSkip(article, url.href, true);
+      if (skipped) return skipped;
       // One request, no retries or redirect-following into AIHOT pages.
       const html = await fetchHtml(url.href, CONFIG.TIMEOUT_MS, 'error');
       const fullContent = extractReadableText(html, url.href);
@@ -119,7 +140,7 @@ async function enrichArticle(article, { selectedTier1 = false } = {}) {
       const fallback = withFallbackContent(article);
       return { ...fallback, fullContentMeta: { ...fallback.fullContentMeta,
         originalUrl: url?.href || null, discoveryUrl: article.link, summaryOnly: true,
-        label: '仅基于摘要', failureCode: error.code || 'original-fetch-failed', error: safeText(error.message, 'Original fetch failed')
+        label: '仅基于摘要', failureCode: failureCode(error, 'original-fetch-failed'), error: safeText(error?.message, 'Original fetch failed')
       } };
     }
   }
@@ -139,6 +160,8 @@ async function enrichArticle(article, { selectedTier1 = false } = {}) {
   }
 
   try {
+    const skipped = configuredHostSkip(article, link);
+    if (skipped) return skipped;
     const html = await fetchHtml(link, CONFIG.TIMEOUT_MS);
     const fullContent = extractReadableText(html, link);
     return {
@@ -154,9 +177,9 @@ async function enrichArticle(article, { selectedTier1 = false } = {}) {
       ...withFallbackContent(article),
       fullContentMeta: {
         fetchedFrom: 'rss-fallback', summaryOnly: true, label: '仅基于摘要',
-        failureCode: error.code || 'web-fetch-failed',
+        failureCode: failureCode(error, 'web-fetch-failed'),
         charCount: safeText(article.content || article.rawContent, '').length,
-        error: safeText(error.message, 'Unknown error')
+        error: safeText(error?.message, 'Unknown error')
       }
     };
   }
@@ -205,6 +228,7 @@ async function main({ params }) {
         fetchedFromWeb: enrichedTopArticles.filter(a => a.fullContentMeta?.fetchedFrom === 'web').length,
         fetchedFromOriginal: enrichedTopArticles.filter(a => a.fullContentMeta?.fetchedFrom === 'original-web').length,
         fromRss: enrichedTopArticles.filter(a => a.fullContentMeta?.fetchedFrom === 'rss').length,
+        skippedRequests: enrichedTopArticles.filter(a => a.fullContentMeta?.requestStatus === 'skipped').length,
         fallbackToRss: enrichedTopArticles.filter(a => a.fullContentMeta?.fetchedFrom === 'rss-fallback').length
       }
     }

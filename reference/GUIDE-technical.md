@@ -56,3 +56,5 @@ policy 1.1.0 将发现渠道与发布方配额分开。AIHOT 仅从 RSS HTML 中
 AIHOT 原文补抓仅适用于已评审 Tier1，单次请求、15 秒超时、禁止自动重定向及重试。fullContentMeta 记录原文链接、发现链接、抓取状态与失败原因；同一 enriched 快照可复用。后续合并与摘要校验须使用 fetch-enriched.json 保留来源边界；record 继续使用原选稿文件。网页与 RSS 的语义一致性由精读 Agent 复核，发现矛盾返回评审，不自动修改已绑定 packet。
 
 正文质量判定见 scripts/content-quality.js：识别安全检测页与 X 明确截断信号，错误码 challenge-page / x-truncated 经 fullContentMeta 传到精读与最终摘要。普通源回退也标注“仅基于摘要”。scripts/fixtures/content-quality-2026-10-25.json 保存实跑提取文本（非原始 HTML），测试用合成 HTML 包装复现提取链路。短文本不等于截断，检测不替代人工语义核验。
+
+环境定制：Tier1 补抓支持 `AI_RSS_SKIP_ORIGIN_HOSTS`，逗号分隔域名，默认空名单。例如 Coze 可设置 `AI_RSS_SKIP_ORIGIN_HOSTS=x.com,twitter.com,marktechpost.com`。域名匹配不区分大小写、忽略 `www.`，其余子域需显式配置（如 `mobile.twitter.com`）；不影响 RSS 抓取与候选正文补充。有效正文缓存优先复用。跳过时不发请求，回退 RSS 并标注“仅基于摘要”，记录 `failureCode=origin-host-skipped`、`requestStatus=skipped` 与原因，单独计入 `metadata.fullContent.skippedRequests`；它属于 RSS 回退总数，不代表本次网络请求失败或域名普遍不可达。移除配置后，之前的跳过结果可重新补抓。异常错误码只保留 `challenge-page` / `x-truncated`；其他类型或未知字符串按原文/普通网页分支归为 `original-fetch-failed` / `web-fetch-failed`。

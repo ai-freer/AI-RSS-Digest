@@ -133,3 +133,18 @@ test('disabled Paul Graham stays auditable and never fetches in daily or health 
     global.fetch = originalFetch;
   }
 });
+
+test('RSS timeout remains active after headers until response body is read', async t => {
+  const { fetchFeedOnce } = require('./rss-fetcher');
+  const original = global.fetch;
+  t.after(() => {global.fetch=original;});
+  global.fetch = async (_url,{signal}) => ({ok:true,text:() => new Promise((resolve,reject) => {
+    const safety = setTimeout(()=>resolve('<rss><channel/></rss>'),500);
+    signal.addEventListener('abort',()=>{clearTimeout(safety);reject(new Error('body read aborted'));},{once:true});
+  })});
+  const result = await fetchFeedOnce({name:'slow-body',url:'https://example.com/feed'},20);
+  assert.equal(result.success,false);
+  assert.match(result.error,/body read aborted/);
+  global.fetch = async () => ({ok:true,text:async()=>'<rss><channel/></rss>'});
+  assert.equal((await fetchFeedOnce({name:'fast',url:'https://example.com/feed'},100)).success,true);
+});

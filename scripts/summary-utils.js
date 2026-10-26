@@ -7,6 +7,8 @@
  * @version 2.3.1
  */
 
+const { canonicalUrl } = require('./article-identity');
+
 const CATEGORY_KEYS = ['编程', 'AI', '系统', '硬件', '安全', '创业', '综合'];
 const QUALITY_RULES = {
   tier1MinSentences: 3,
@@ -440,11 +442,16 @@ function ensureSummaryShape(data, fetchData = {}) {
   }
 
   if (tier1Source.length === 0) {
+    if (fetchData.editorialStatus === 'reviewed' && fetchTop.length) {
+      throw new Error('Reviewed Tier1 summaries are missing; regenerate deep-read results without changing selection');
+    }
     tier1Source = fetchTop.slice(0, 5);
   }
   if (tier2Source.length === 0) {
-    const fallbackTier2 = [...fetchTop.slice(5), ...fetchOther];
-    tier2Source = fallbackTier2;
+    const tier1Links = new Set(tier1Source.map(a => canonicalUrl(a.link)).filter(Boolean));
+    const fallbackTier2 = fetchData.editorialStatus === 'reviewed'
+      ? fetchOther : [...fetchTop.slice(5), ...fetchOther];
+    tier2Source = fallbackTier2.filter(a => !tier1Links.has(canonicalUrl(a.link)));
   }
 
   const rawTier1 = tier1Source.map((a, idx) => normalizeTier1Item(a, idx + 1));
@@ -506,7 +513,11 @@ function ensureSummaryShape(data, fetchData = {}) {
       qualityGates: {
         applied: true,
         rules: QUALITY_RULES,
-        warnings: [...tier1Quality.warnings, ...tier2Quality.warnings]
+        warnings: [...new Set([
+          ...(Array.isArray(data.metadata?.qualityGates?.warnings)
+            ? data.metadata.qualityGates.warnings.filter(w => typeof w === 'string') : []),
+          ...tier1Quality.warnings, ...tier2Quality.warnings
+        ])]
       }
     }
   };

@@ -415,8 +415,6 @@ async function fetchFeedOnce(feed, timeout = CONFIG.TIMEOUT) {
       }
     });
 
-    clearTimeout(timeoutId);
-
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
@@ -444,12 +442,13 @@ async function fetchFeedOnce(feed, timeout = CONFIG.TIMEOUT) {
       }))
     };
   } catch (error) {
-    clearTimeout(timeoutId);
     return {
       success: false,
       feed: feed.name,
       error: error.message
     };
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -882,6 +881,7 @@ if (typeof module !== 'undefined' && module.exports) {
     CONFIG,
     parseFeed,
     extractContent,
+    fetchFeedOnce,
     checkFeedHealth,
     checkFeedsHealth,
     scoreAndSort,

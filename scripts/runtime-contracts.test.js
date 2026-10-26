@@ -61,3 +61,20 @@ test('failed summary validation leaves the input artifact intact', t => {
   assert.equal(r.status, 1); assert.match(r.stderr, /at least 5 sentences/);
   assert.equal(fs.readFileSync(input, 'utf8'), original);
 });
+
+test('seven reviewed Tier1 items never spill into Tier2 fallback; warnings survive validation', () => {
+  const top = Array.from({length:7}, (_,i) => ({...item('第一句。第二句。第三句。第四句。第五句。'),link:`https://example.com/${i}`}));
+  const other = {title:'Other',link:'https://example.com/other',content:'足够长的速览内容用于展示明确的信息与依据。'};
+  const data = {tier1:top,tier2:[],metadata:{qualityGates:{warnings:['earlier repair','earlier repair',42]}}};
+  const fetchData = {editorialStatus:'reviewed',topArticles:top,otherTopArticles:[other]};
+  const first = ensureSummaryShape(data,fetchData);
+  assert.deepEqual(first.tier1.map(a=>a.link),top.map(a=>a.link));
+  assert.deepEqual(first.tier2.map(a=>a.link),[other.link]);
+  const second = ensureSummaryShape(first,fetchData);
+  assert.deepEqual(second.metadata.qualityGates.warnings,first.metadata.qualityGates.warnings);
+  assert.equal(second.metadata.qualityGates.warnings.filter(w=>w==='earlier repair').length,1);
+  assert.deepEqual(ensureSummaryShape(data,{...fetchData,otherTopArticles:[]}).tier2,[]);
+  assert.throws(()=>ensureSummaryShape({tier1:[],tier2:[]},fetchData),/Tier1 summaries are missing/);
+  const legacy = ensureSummaryShape(data,{topArticles:top,otherTopArticles:[top[6],other]});
+  assert.deepEqual(legacy.tier2.map(a=>a.link),[other.link]);
+});

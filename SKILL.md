@@ -4,7 +4,7 @@ description: >-
   AI-RSS-Digest：生成 RSS 日报、中文 AI 与技术阅读摘要。通过 Agent 候选评审、
   类型化评分、事件去重、跨期新增信息判断、逐篇精读与周期复盘，筛选值得读的内容。
   本地脚本校验和留档，不调用外部 LLM API。
-version: 4.3.1
+version: 4.3.2
 ---
 
 # AI-RSS-Digest
@@ -20,6 +20,8 @@ version: 4.3.1
 5. Paul Graham 官网按下述增量流程采集，旧 feed 保持停用；除此以外不增加信源。默认中文 A 级源继续启用，包括 AIHOT 官方 RSS；不解析 AIHOT 新旧网页。来源偏好 A/B 不等于事件第一方身份。
 6. 未知时间、证据不足保留 pending，不补写事实或发布时间，不为凑数降低门槛。零入选时停止精读和摘要，不自行补文章。若 outcome=pending-input，明确报告材料不足、待核实或预算延期；若 diagnostics/acquisitionDiagnostics 提示低正文覆盖率，报告采集质量异常线索，不解释为“今日无优质内容”。
 7. 默认历史 `~/.local/share/ai-rss-digest/ledger.json` 跨本机客户端共享。不同读者/项目须在 prepare、record、retrospective 传相同的独立 `--ledgerFile`。历史不要放在临时目录或 skill 安装目录。prepare/record/retrospective 在 stderr 输出 `[ledger]` 诊断，包含绝对路径、default/explicit、missing/loaded/invalid、总期数与最近七天期数；prepare 的 packet 和复盘材料也保存诊断。missing 表示空历史，非首次运行时须检查路径持久性；invalid 不得删除账本重置。record 成功返回 saved 状态与保存后期数。
+
+Tier1 补抓的环境跳过名单默认为空。Coze 若确认特定域名持续不可达，可在运行环境设置 `AI_RSS_SKIP_ORIGIN_HOSTS=x.com,twitter.com,marktechpost.com`；不写入全局默认配置。跳过项不请求原文，保留 RSS 并标注“仅基于摘要”，使用 `origin-host-skipped` 和独立 `skippedRequests` 统计，不能报告为本次请求失败。有效正文缓存仍可复用；域名匹配和配置撤销行为见 `reference/GUIDE-technical.md`。
 
 ## 1. 抓取与准备评审
 
@@ -92,6 +94,8 @@ node scripts/output-formatter.js --input "$RUN/summary.json" --format md --outFi
 公共 CLI 同时支持 `--key value` 和 `--key=value`；需要值的参数不得传空值或裸开关。
 
 中文句号、问号、叹号无需空格即可断句；版本号与小数内部点号不会断句。精读摘要至少五句，普通摘要至少三句；仅可从已有 keyPoints 重建，重建后仍不足则报错，修正该篇摘要后重新 assemble/validate，不伪造句子凑数。
+
+校验会保留并去重此前的质量警告，不因二次校验通过而抹去修复记录。已评审的 Tier1 缺精读时须补齐；Tier2 回退只使用原选定的速览名单，不把精读再次放入速览。
 
 格式支持 md/html/json。详细页面以 tier1 为主，highlights 仅兼容字段。输出不代表外部投递，本 skill 不内置发送，发消息需用户明确授权。
 

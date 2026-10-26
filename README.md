@@ -55,6 +55,8 @@ These are offline behavior checks, not proof of improved editorial accuracy. The
 
 Version 4.1 uses XML DOM parsing, reports body coverage, and keeps local pending/deferred records outside model prompts. Every original candidate remains accountable. Low body coverage or pending-input is a collection/material issue, not evidence that no worthwhile articles exist.
 
+4.3.2: Add opt-in environment host skips and normalized failure codes; preserve quality warnings and reviewed tier membership during fallback; cover RSS body reads with request timeouts; clarify per-article evidence and daily advice prompts.
+
 4.3.1: Reject security challenge pages and explicitly truncated X posts; preserve RSS and propagate summary-only labels for all sources. Regression fixtures come from the October 25 live run.
 
 4.3.0: Fetch explicit original links once for reviewed AIHOT Tier1 articles; preserve RSS evidence and label failed or unavailable originals as summary-only.

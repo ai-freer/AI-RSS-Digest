@@ -61,3 +61,40 @@ test('HTTP error, timeout, redirect and empty extraction fall back without a sec
     await enrichArticle(article, { selectedTier1: true }); assert.equal(calls, 1);
   }
 });
+
+test('environment host skips issue no requests, preserve RSS and can be removed', async t => {
+  const previous = global.fetch, env = process.env.AI_RSS_SKIP_ORIGIN_HOSTS;
+  let calls = 0;
+  global.fetch = async () => { calls++; return { ok: true, text: async () => html }; };
+  t.after(() => { global.fetch = previous; if (env === undefined) delete process.env.AI_RSS_SKIP_ORIGIN_HOSTS; else process.env.AI_RSS_SKIP_ORIGIN_HOSTS = env; });
+  process.env.AI_RSS_SKIP_ORIGIN_HOSTS = ' X.COM, twitter.com, marktechpost.com ';
+  const articles = ['https://x.com/a/status/1','https://twitter.com/a/status/1','https://www.marktechpost.com/article'].map(url => ({ ...base, origin: { ...base.origin, url } }));
+  const { result } = await main({ params: { fetchData: { editorialStatus:'reviewed', topArticles:articles } } });
+  assert.equal(calls,0); assert.equal(result.metadata.fullContent.skippedRequests,3);
+  for (const a of result.topArticles) {
+    assert.equal(a.fullContent,base.content); assert.equal(a.fullContentMeta.failureCode,'origin-host-skipped');
+    assert.equal(a.fullContentMeta.summaryOnly,true);
+    assert.match(buildDeepReadPrompt('{{fullContent}}',a,'daily'),/仅基于摘要/);
+  }
+  const ordinary = await enrichArticle({ source:'Other',link:'https://x.com/test',content:'RSS' });
+  assert.equal(ordinary.fullContentMeta.requestStatus,'skipped'); assert.equal(calls,0);
+  await enrichArticle({ ...base, origin:{ ...base.origin,url:'https://notx.com/article' } },{selectedTier1:true});
+  assert.equal(calls,1);
+  delete process.env.AI_RSS_SKIP_ORIGIN_HOSTS;
+  const restored = await enrichArticle(result.topArticles[0],{selectedTier1:true});
+  assert.equal(calls,2); assert.equal(restored.fullContentMeta.fetchedFrom,'original-web');
+});
+
+test('only known string business codes survive error normalization', async t => {
+  const previous = global.fetch; t.after(() => { global.fetch = previous; });
+  for (const code of [20, {}, '', 'ETIMEDOUT', undefined, 'challenge-page', 'x-truncated']) {
+    global.fetch = async () => { throw { code, message:'test failure' }; };
+    const known = ['challenge-page','x-truncated'].includes(code);
+    const a = await enrichArticle(base,{selectedTier1:true});
+    const b = await enrichArticle({source:'Other',link:'https://publisher.example/a',content:'RSS'});
+    assert.equal(a.fullContentMeta.failureCode,known ? code : 'original-fetch-failed');
+    assert.equal(b.fullContentMeta.failureCode,known ? code : 'web-fetch-failed');
+  }
+  global.fetch = async () => { throw null; };
+  assert.equal((await enrichArticle(base,{selectedTier1:true})).fullContentMeta.failureCode,'original-fetch-failed');
+});
