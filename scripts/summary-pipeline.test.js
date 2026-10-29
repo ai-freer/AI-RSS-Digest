@@ -22,7 +22,7 @@ async function run() {
     topArticles: [
       {
         title: 'Top Article',
-        link: 'https://example.com/top',
+        link: 'https://fixtures.test/top',
         source: 'example',
         content: '<p>LLM inference speed and model quality tradeoff.</p>'
       }
@@ -30,7 +30,7 @@ async function run() {
     otherTopArticles: [
       {
         title: 'Other Article',
-        link: 'https://example.com/other',
+        link: 'https://fixtures.test/other',
         source: 'example',
         content: '&lt;p&gt;A short one-liner for scanning.&lt;/p&gt;'
       }
@@ -43,7 +43,7 @@ async function run() {
       {
         rank: 1,
         title: 'Top Article',
-        link: 'https://example.com/top',
+        link: 'https://fixtures.test/top',
         source: 'example',
         category: 'AI',
         summary: 'Too short.',
@@ -56,7 +56,7 @@ async function run() {
       {
         rank: 1,
         title: 'Other Article',
-        link: 'https://example.com/other',
+        link: 'https://fixtures.test/other',
         source: 'example',
         category: '编程',
         oneLiner: 'short'
@@ -127,7 +127,7 @@ async function run() {
     {
       title: 'Deep Article',
       source: 'example',
-      link: 'https://example.com/deep',
+      link: 'https://fixtures.test/deep',
       pubDate: '2026-02-16',
       fullContent: 'This is the full article content.'
     },
@@ -147,7 +147,7 @@ async function run() {
       </body>
     </html>
     `,
-    'https://example.com'
+    'https://fixtures.test'
   );
   assert.ok(parsedText.includes('Main readable content.'));
 
@@ -159,7 +159,7 @@ async function run() {
         topArticles: [
           {
             title: 'Top Deep',
-            link: 'https://example.com/deep',
+            link: 'https://fixtures.test/deep',
             source: 'example',
             pubDate: '2026-02-16',
             fullContent: 'Long full article text'
@@ -180,7 +180,7 @@ async function run() {
         results: [
           {
             title: 'Deep Result',
-            link: 'https://example.com/deep',
+            link: 'https://fixtures.test/deep',
             source: 'example',
             category: 'AI',
             summary: '第一句。第二句。第三句。第四句。第五句。',
@@ -197,7 +197,7 @@ async function run() {
           {
             rank: 1,
             title: 'Tier2 title',
-            link: 'https://example.com/tier2',
+            link: 'https://fixtures.test/tier2',
             source: 'example',
             category: '编程',
             oneLiner: '一句话速览内容足够长可通过质量校验'
@@ -218,7 +218,7 @@ async function run() {
   // normalizeDeepReadResult
   const normalizedDeepRead = normalizeDeepReadResult({
     title: 'Deep Direct',
-    link: 'https://example.com/direct',
+    link: 'https://fixtures.test/direct',
     source: 'example',
     summary: '一句。两句。三句。四句。五句。',
     keyPoints: ['a', 'b', 'c', 'd', 'e'],

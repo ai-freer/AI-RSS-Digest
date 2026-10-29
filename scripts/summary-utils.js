@@ -7,6 +7,7 @@
  * @version 2.3.1
  */
 
+const { graphemes, excerpt, unmark, assertLinks } = require('./content-contract');
 const { canonicalUrl } = require('./article-identity');
 
 const CATEGORY_KEYS = ['编程', 'AI', '系统', '硬件', '安全', '创业', '综合'];
@@ -62,8 +63,7 @@ function cleanText(text) {
 
 function stripAndClamp(text, maxLen = 1200) {
   const raw = cleanText(text);
-  if (raw.length <= maxLen) return raw;
-  return `${raw.slice(0, maxLen)}...`;
+  return excerpt(raw, maxLen);
 }
 
 function inferCategory(title, content) {
@@ -181,11 +181,9 @@ function ensureCategory(value, fallback = '综合') {
   return CATEGORY_KEYS.includes(normalized) ? normalized : fallback;
 }
 
-function extractShortSummary(text, maxLen = 90) {
-  const raw = cleanText(text);
-  if (!raw) return '信息不足，建议查看原文。';
-  if (raw.length <= maxLen) return raw;
-  return `${raw.slice(0, maxLen)}...`;
+function extractShortSummary(text) {
+  // Structured summaries are never silently truncated.
+  return cleanText(text);
 }
 
 function extractSentences(text, count = 3) {
@@ -235,6 +233,8 @@ function groupTier2ByCategory(tier2) {
 
 function bridgeFromTier1(tier1) {
   return tier1.map((a, index) => ({
+    fullContentMeta: a.fullContentMeta,
+    origin: a.origin,
     rank: Number.isFinite(Number(a.rank)) ? Number(a.rank) : index + 1,
     title: safeText(a.title, 'Untitled'),
     link: safeText(a.link, ''),
@@ -260,6 +260,8 @@ function isDeepReadItem(article) {
 
 function normalizeDeepReadResult(result, rank) {
   return {
+    fullContentMeta: result?.fullContentMeta,
+    origin: result?.origin,
     rank: Number.isFinite(Number(result?.rank)) ? Number(result.rank) : rank,
     title: safeText(result?.title, 'Untitled'),
     link: safeText(result?.link, ''),
@@ -277,6 +279,7 @@ function normalizeDeepReadResult(result, rank) {
 }
 
 function normalizeTier1Item(article, rank) {
+  article = unmark(article);
   const isDeepRead = isDeepReadItem(article);
   const content = safeText(article.summary, '') || extractSentences(article.content, 3).join(' ');
   const maxKeyPoints = isDeepRead ? QUALITY_RULES.tier1DeepReadMaxKeyPoints : 3;
@@ -287,6 +290,8 @@ function normalizeTier1Item(article, rank) {
     : extractSentences(article.content, maxKeyPoints).map(item => extractShortSummary(item, isDeepRead ? 120 : 60));
 
   return {
+    fullContentMeta: article.fullContentMeta,
+    origin: article.origin,
     rank: Number.isFinite(Number(article.rank)) ? Number(article.rank) : rank,
     title: safeText(article.title, 'Untitled'),
     link: safeText(article.link, ''),
@@ -308,6 +313,8 @@ function normalizeTier1Item(article, rank) {
 
 function normalizeTier2Item(article, rank) {
   return {
+    fullContentMeta: article.fullContentMeta,
+    origin: article.origin,
     rank: Number.isFinite(Number(article.rank)) ? Number(article.rank) : rank,
     title: safeText(article.title, 'Untitled'),
     link: safeText(article.link, ''),
@@ -397,10 +404,8 @@ function enforceTier2Quality(tier2) {
       return output;
     }
 
-    if (raw.length > QUALITY_RULES.tier2MaxLen) {
-      output.oneLiner = `${raw.slice(0, QUALITY_RULES.tier2MaxLen)}...`;
-      warnings.push(`tier2[${idx}] oneLiner clamped`);
-      return output;
+    if (graphemes(raw).length > QUALITY_RULES.tier2MaxLen) {
+      throw new Error(`tier2[${idx}] oneLiner exceeds ${QUALITY_RULES.tier2MaxLen} characters; rewrite a complete shorter summary`);
     }
 
     output.oneLiner = raw;
@@ -470,12 +475,13 @@ function ensureSummaryShape(data, fetchData = {}) {
     if (original?.source === 'AIHOT' || original?.fullContentMeta) {
       row.fullContentMeta = original.fullContentMeta || { summaryOnly: true, fetchedFrom: 'rss', label: '仅基于摘要' };
       row.origin = original.origin || null;
-      if (row.fullContentMeta.summaryOnly || (original.source === 'AIHOT' && row.fullContentMeta.fetchedFrom !== 'original-web')) {
-        if (!row.title.startsWith('【仅基于摘要】')) row.title = `【仅基于摘要】${row.title}`;
-        if (!row.risk.includes('仅基于摘要')) row.risk = `仅基于摘要，未取得原文。${row.risk}`;
+      if (original.source === 'AIHOT' && row.fullContentMeta.fetchedFrom !== 'original-web') {
+        row.fullContentMeta = { ...row.fullContentMeta, summaryOnly: true };
       }
+      Object.assign(row, unmark(row));
     }
   }
+  assertLinks([...tier1, ...tier2]);
   const highlights = bridgeFromTier1(tier1);
   const byCategory = groupTier2ByCategory(tier2);
   const summary = (data.summary && typeof data.summary === 'object')

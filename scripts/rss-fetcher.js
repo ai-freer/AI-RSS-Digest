@@ -1,3 +1,4 @@
+const { linkIssue } = require('./content-contract');
 /**
  * RSS Fetcher for Automation Workflow
  *
@@ -565,6 +566,9 @@ async function checkFeedsHealth(feeds, concurrency = CONFIG.CONCURRENCY, timeout
  * 轻量去重和候选准备（以排序为主，尽量少做强过滤）
  */
 function prepareCandidates(articles, timeWindowHours = CONFIG.TIME_WINDOW_HOURS) {
+  for (const row of articles) {
+    if (linkIssue(row.link) === 'placeholder-article-url') throw new Error(`placeholder-article-url: ${row.link}; correct input before deduplication`);
+  }
   const seenKeys = new Set();
   const cutoffTime = new Date(Date.now() - timeWindowHours * 60 * 60 * 1000);
 

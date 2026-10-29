@@ -1,3 +1,4 @@
+const { linkIssue } = require('./content-contract');
 const { localReason, coverageDiagnostics, isDiscoveredLongform } = require('./candidate-readiness');
 const { hash, articleId, canonicalUrl } = require('./article-identity');
 
@@ -44,6 +45,9 @@ function prepare(fetchData, policy, template, ledger = EMPTY_LEDGER, now = new D
   validateLedger(ledger);
   assert(Array.isArray(fetchData.candidates), 'Fetch again with v4: full candidates array is required');
   assert(Number.isFinite(Date.parse(now)), 'Invalid clock');
+  for (const row of fetchData.candidates) {
+    if (linkIssue(row.link) === 'placeholder-article-url') throw new Error(`placeholder-article-url: ${row.link}; correct input before deduplication`);
+  }
   const cutoff = Date.parse(now) - policy.historyDays * 86400000;
   const history = ledger.editions.filter(e => Date.parse(e.recordedAt) >= cutoff).flatMap(e => e.events);
   const candidates = fetchData.candidates.map(article => ({

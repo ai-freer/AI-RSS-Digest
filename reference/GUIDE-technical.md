@@ -58,3 +58,5 @@ AIHOT 原文补抓仅适用于已评审 Tier1，单次请求、15 秒超时、�
 正文质量判定见 scripts/content-quality.js：识别安全检测页与 X 明确截断信号，错误码 challenge-page / x-truncated 经 fullContentMeta 传到精读与最终摘要。普通源回退也标注“仅基于摘要”。scripts/fixtures/content-quality-2026-10-25.json 保存实跑提取文本（非原始 HTML），测试用合成 HTML 包装复现提取链路。短文本不等于截断，检测不替代人工语义核验。
 
 环境定制：Tier1 补抓支持 `AI_RSS_SKIP_ORIGIN_HOSTS`，逗号分隔域名，默认空名单。例如 Coze 可设置 `AI_RSS_SKIP_ORIGIN_HOSTS=x.com,twitter.com,marktechpost.com`。域名匹配不区分大小写、忽略 `www.`，其余子域需显式配置（如 `mobile.twitter.com`）；不影响 RSS 抓取与候选正文补充。有效正文缓存优先复用。跳过时不发请求，回退 RSS 并标注“仅基于摘要”，记录 `failureCode=origin-host-skipped`、`requestStatus=skipped` 与原因，单独计入 `metadata.fullContent.skippedRequests`；它属于 RSS 回退总数，不代表本次网络请求失败或域名普遍不可达。移除配置后，之前的跳过结果可重新补抓。异常错误码只保留 `challenge-page` / `x-truncated`；其他类型或未知字符串按原文/普通网页分支归为 `original-fetch-failed` / `web-fetch-failed`。
+
+4.4.0 输出契约：source/language 含义不变，详见 SKILL.md 的字段说明。summary-utils 不再切短结构化文字，Tier2 超过 140 字符簇拒绝并要求重写；output-formatter 保留完整正文、引句、最多 5 个既有要点及 fullContentMeta。仅提示词预算摘录用 Intl.Segmenter 截断并显示省略号。JSON 不自动添加摘要回退标记；MD/HTML 从 summaryOnly 生成展示提示。旧固定前缀仅在 summaryOnly 为真时移除，摘要中真实的证据限制表述保留。候选去重前、评审入口拦截明确占位链接；摘要校验和全部输出格式额外拒绝非法 HTTP(S) 地址。任何校验失败都须修正来源，不通过删除候选或改成虚构地址继续发布。

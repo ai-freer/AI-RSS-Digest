@@ -10,9 +10,9 @@ const html = text => `<html><head><title>Test wrapper</title></head><body><artic
 test('real extracted challenge and X truncation samples are rejected; valid short post is accepted', () => {
   for (const a of samples) assert.equal(contentFailure(a.extracted, a.url)?.code || null, a.expectedFailure);
   assert.equal(contentFailure('A brief useful announcement without terminal punctuation', 'https://x.com/user/status/1'), null);
-  assert.equal(contentFailure('Discussing "正在进行安全检测" as a UI label.', 'https://example.com'), null);
+  assert.equal(contentFailure('Discussing "正在进行安全检测" as a UI label.', 'https://fixtures.test'), null);
   assert.equal(contentFailure('This complete post has text.', 'https://x.com/user/status/1', '<button data-testid="tweet-text-show-more-link">Show more</button>').code, 'x-truncated');
-  assert.equal(contentFailure('An article that happens to end with the', 'https://example.com'), null);
+  assert.equal(contentFailure('An article that happens to end with the', 'https://fixtures.test'), null);
 });
 
 test('real samples automatically preserve RSS and propagate fallback labels through final Markdown', async t => {
@@ -32,8 +32,8 @@ test('real samples automatically preserve RSS and propagate fallback labels thro
       const fetchData = { topArticles:[enriched],otherTopArticles:[] };
       const summary = ensureSummaryShape(input,fetchData);
       assert.equal(summary.tier1[0].fullContentMeta.failureCode,a.expectedFailure);
-      assert.match(summary.tier1[0].title,/^【仅基于摘要】/);
-      assert.match(summary.tier1[0].risk,/仅基于摘要/);
+      assert.ok(!summary.tier1[0].title.startsWith('【仅基于摘要】'));
+      assert.equal(summary.tier1[0].fullContentMeta.summaryOnly,true);
       assert.match(formatMarkdown(normalizeSummaryData(summary)),/仅基于摘要/);
       assert.equal(ensureSummaryShape(summary,fetchData).tier1[0].title, summary.tier1[0].title);
     } else {

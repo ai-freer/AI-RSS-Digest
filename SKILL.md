@@ -4,7 +4,7 @@ description: >-
   AI-RSS-Digest：生成 RSS 日报、中文 AI 与技术阅读摘要。通过 Agent 候选评审、
   类型化评分、事件去重、跨期新增信息判断、逐篇精读与周期复盘，筛选值得读的内容。
   本地脚本校验和留档，不调用外部 LLM API。
-version: 4.3.2
+version: 4.4.0
 ---
 
 # AI-RSS-Digest
@@ -73,9 +73,9 @@ node scripts/prepare-deep-read.js --fetchFile "$RUN/fetch-enriched.json" --templ
 
 AIHOT 仅在 editorialStatus=reviewed 的 Tier1 名单中启用原文补抓，要求 origin.evidence=rss-read-original-link 且是外部 HTTP(S) URL。每篇最多一次请求、15 秒超时，不自动重试或跟随重定向，避免误抓 AIHOT 页面；重定向也回退并记录原因。同一 enriched 快照再次处理会复用结果。Tier2、候选 supplement 不补抓。
 
-正文提取后检查安全检测页，以及 X 的展开控件、尾部省略号和明显未完成的英文从句等截断线索；命中时自动回退 RSS，failureCode 分别为 challenge-page / x-truncated。普通来源与 AIHOT 均在最终标题和风险说明标注“仅基于摘要”，不会用验证页覆盖有效 RSS。检测是保守启发式，不保证识别所有截断；短帖不因字数少直接判失败，精读仍须核对内容边界。旧 AIHOT 成功缓存也重新检查文本，避免沿用已知坏结果。
+正文提取后检查安全检测页，以及 X 的展开控件、尾部省略号和明显未完成的英文从句等截断线索；命中时自动回退 RSS，failureCode 分别为 challenge-page / x-truncated。普通来源与 AIHOT 均在 Markdown/HTML 展示标题和风险说明标注“仅基于摘要”，不会用验证页覆盖有效 RSS。检测是保守启发式，不保证识别所有截断；短帖不因字数少直接判失败，精读仍须核对内容边界。旧 AIHOT 成功缓存也重新检查文本，避免沿用已知坏结果。
 
-成功时 fullContent 保存原文，fullContentMeta 保存 originalUrl/discoveryUrl/fetchedFrom，RSS content 和已评审名单保持不变。失败、无法提取正文或缺明确原文链接时保留 RSS 摘要，summaryOnly=true，并在精读提示、最终标题和风险说明中标注“仅基于摘要”。摘要证据不足以完成质量要求时停止该篇，不凑句数。若原文与 RSS 摘要关键事实矛盾或指向不同文章，Agent 必须停止该篇并返回评审复核，不能把网页请求成功当成事实一致性验证。
+成功时 fullContent 保存原文，fullContentMeta 保存 originalUrl/discoveryUrl/fetchedFrom，RSS content 和已评审名单保持不变。失败、无法提取正文或缺明确原文链接时保留 RSS 摘要，summaryOnly=true，并在精读提示及 Markdown/HTML 展示中标注“仅基于摘要”。摘要证据不足以完成质量要求时停止该篇，不凑句数。若原文与 RSS 摘要关键事实矛盾或指向不同文章，Agent 必须停止该篇并返回评审复核，不能把网页请求成功当成事实一致性验证。
 
 逐条执行 prompts[]，输出 deep-read-results.json（数组或 results 数组），每个 Tier1 一项。保留 link/source/rank，填写 summary/keyPoints/action/risk/category，不跳篇。全文不足标明证据边界；发现选稿事实有误时返回评审，不偷偷换名单。
 
@@ -128,3 +128,11 @@ node scripts/editorial-cli.js evaluate --goldFile /absolute/path/to/human-gold.j
 - [模板](reference/GUIDE-templates.md)
 - [信源](reference/GUIDE-sources.md)
 - [借鉴与边界](reference/EDITORIAL-DESIGN.md)
+
+## 字段契约与输出校验（4.4.0）
+
+- `source` 是发现信源名称（如 AIHOT、36氪），不保证是域名，不等于原发布方；不改写为 link 的 hostname。`link` 是发现链接，`origin.url` 是从 RSS 明确原文链接确认的地址，`fullContentMeta.originalUrl` 是补抓目标，均不等同于独立事实核验。缺原文依据时发布方未知，不猜测。
+- `language` 是信源配置的语言分类，用于筛源；`zh` 不保证补抓原文为中文，`global` 不代表英文。不能从 origin.url 推断原文语言；摘要默认中文，与信源分类独立。
+- 机器消费者读取 `fullContentMeta.summaryOnly`，不通过搜索标题判断。JSON 保留干净标题和正文，Markdown/HTML 按字段生成可见的“仅基于摘要”提示。已有摘要中的真实证据限制文字不删；仅迁移旧版自动添加的固定标题/风险前缀。下游升级后须自行按字段显示提示。
+- 结构化摘要、引句和要点不硬截断；Tier2 超过 140 个完整字符簇时报错，重新写短而完整的一句话，不删省略号伪装完整。候选提示词的预算摘录按字符簇截取并保留省略号，不切坏 emoji。
+- 明确示例域名（example.com/org/net 及子域）和完整占位路径段/参数值（xxx、undefined、null、{id} 等）在候选去重前和评审入口报错，须修正输入，不静默删除候选。摘要校验与 md/html/json 输出均要求有效 HTTP(S) 链接，拒绝凭据链接与占位地址；失败不覆盖原输出。此检查不代表链接已联网验证，也不证明文章真实。

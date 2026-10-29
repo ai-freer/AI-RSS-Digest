@@ -39,7 +39,7 @@ test('missing/ambiguous/non-web/AIHOT origins never fetch and receive visible fa
     assert.match(buildDeepReadPrompt('{{fullContent}}', article, 'daily'), /仅基于摘要/);
     const fetchData = { topArticles: [article], otherTopArticles: [] };
     const normalized = ensureSummaryShape({ tier1: [{ ...base, summary, keyPoints: ['甲','乙','丙'], sourceType: 'deep-read' }], tier2: [] }, fetchData);
-    assert.match(normalized.tier1[0].title, /^【仅基于摘要】/); assert.match(normalized.tier1[0].risk, /仅基于摘要/);
+    assert.ok(!normalized.tier1[0].title.startsWith('【仅基于摘要】')); assert.equal(normalized.tier1[0].fullContentMeta.summaryOnly,true);
     const again = ensureSummaryShape(normalized, fetchData);
     assert.equal(again.tier1[0].title, normalized.tier1[0].title);
   }

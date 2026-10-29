@@ -12,14 +12,14 @@ const { coverageDiagnostics } = require('./candidate-readiness');
 const { articleId } = require('./article-identity');
 const policy = require('../editorial-policy.json');
 const now = '2026-10-21T12:00:00Z';
-const article = (n, extra = {}) => ({ title: `文章${n}`, link: `https://example.com/${n}`, source: 'A', content: '', pubDate: now, hasValidPubDate: true, ...extra });
+const article = (n, extra = {}) => ({ title: `文章${n}`, link: `https://fixtures.test/${n}`, source: 'A', content: '', pubDate: now, hasValidPubDate: true, ...extra });
 
 test('Atom attributes, namespaces, XHTML, entities and alternate links parse in Node', () => {
-  const entries = Array.from({ length: 30 }, (_, i) => `<a:entry xml:lang="zh"><a:title>T${i}</a:title><a:link rel="self" href="https://example.com/feed/${i}"/><a:link rel="alternate" href="https://example.com/${i}"/><a:summary type="html">&lt;p&gt;正文 &amp;amp; 方法&lt;/p&gt;</a:summary></a:entry>`).join('');
+  const entries = Array.from({ length: 30 }, (_, i) => `<a:entry xml:lang="zh"><a:title>T${i}</a:title><a:link rel="self" href="https://fixtures.test/feed/${i}"/><a:link rel="alternate" href="https://fixtures.test/${i}"/><a:summary type="html">&lt;p&gt;正文 &amp;amp; 方法&lt;/p&gt;</a:summary></a:entry>`).join('');
   const rows = parseFeed(`<a:feed xmlns:a="http://www.w3.org/2005/Atom">${entries}</a:feed>`);
   assert.equal(rows.length, 30);
   assert.ok(rows.every(row => extractContent(row.description) === '正文 & 方法'));
-  assert.equal(rows[0].link, 'https://example.com/0');
+  assert.equal(rows[0].link, 'https://fixtures.test/0');
   const [xhtml] = parseFeed('<feed xmlns="http://www.w3.org/2005/Atom"><entry><summary>短摘要</summary><content type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml"><p>第一段</p><p>第二段</p></div></content></entry></feed>');
   assert.equal(extractContent(xhtml.description), '第一段 第二段');
 });
@@ -142,9 +142,9 @@ test('RSS timeout remains active after headers until response body is read', asy
     const safety = setTimeout(()=>resolve('<rss><channel/></rss>'),500);
     signal.addEventListener('abort',()=>{clearTimeout(safety);reject(new Error('body read aborted'));},{once:true});
   })});
-  const result = await fetchFeedOnce({name:'slow-body',url:'https://example.com/feed'},20);
+  const result = await fetchFeedOnce({name:'slow-body',url:'https://fixtures.test/feed'},20);
   assert.equal(result.success,false);
   assert.match(result.error,/body read aborted/);
   global.fetch = async () => ({ok:true,text:async()=>'<rss><channel/></rss>'});
-  assert.equal((await fetchFeedOnce({name:'fast',url:'https://example.com/feed'},100)).success,true);
+  assert.equal((await fetchFeedOnce({name:'fast',url:'https://fixtures.test/feed'},100)).success,true);
 });

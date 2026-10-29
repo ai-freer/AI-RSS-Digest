@@ -7,6 +7,7 @@
  * @author RSS Digest Skill
  */
 
+const { assertLinks, unmark } = require('./content-contract');
 const fs = require('fs');
 const path = require('path');
 const { parseCliArgs } = require('./cli-utils');
@@ -21,8 +22,7 @@ function cleanText(text, maxLen = null) {
     .replace(/<[^>]+>/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-  if (!Number.isInteger(maxLen) || maxLen <= 0 || cleaned.length <= maxLen) return cleaned;
-  return `${cleaned.slice(0, maxLen)}...`;
+  return cleaned;
 }
 
 function ensureCategory(value) {
@@ -116,14 +116,15 @@ function normalizeSummaryData(input) {
     : {};
 
   if (tier1.length === 0 && highlights.length > 0) {
-    tier1 = highlights.map((h, idx) => ({
+    tier1 = highlights.map(unmark).map((h, idx) => ({
+      ...h,
       rank: Number.isFinite(Number(h.rank)) ? Number(h.rank) : idx + 1,
       title: cleanText(h.title || 'Untitled', 200),
       link: String(h.link || '').trim(),
       source: cleanText(h.source || 'unknown', 80),
       category: ensureCategory(h.category),
       summary: cleanText(h.summary || h.reason || '', 260),
-      keyPoints: Array.isArray(h.keyPoints) ? h.keyPoints.slice(0, 3).map(v => cleanText(v, 80)) : [],
+      keyPoints: Array.isArray(h.keyPoints) ? h.keyPoints.slice(0, 5).map(v => cleanText(v, 80)) : [],
       action: cleanText(h.action || '', 120),
       risk: cleanText(h.risk || '', 120)
     }));
@@ -133,19 +134,21 @@ function normalizeSummaryData(input) {
     tier2 = flattenByCategory(byCategory);
   }
 
-  tier1 = tier1.map((h, idx) => ({
+  tier1 = tier1.map(unmark).map((h, idx) => ({
+    ...h,
     rank: Number.isFinite(Number(h.rank)) ? Number(h.rank) : idx + 1,
     title: cleanText(h.title || 'Untitled', 200),
     link: String(h.link || '').trim(),
     source: cleanText(h.source || 'unknown', 80),
     category: ensureCategory(h.category),
     summary: cleanText(h.summary || h.reason || '', 360),
-    keyPoints: Array.isArray(h.keyPoints) ? h.keyPoints.slice(0, 3).map(v => cleanText(v, 80)).filter(Boolean) : [],
+    keyPoints: Array.isArray(h.keyPoints) ? h.keyPoints.slice(0, 5).map(v => cleanText(v, 80)).filter(Boolean) : [],
     action: cleanText(h.action || '', 120),
     risk: cleanText(h.risk || '', 120)
   }));
 
   tier2 = tier2.map((h, idx) => ({
+    ...h,
     rank: Number.isFinite(Number(h.rank)) ? Number(h.rank) : idx + 1,
     title: cleanText(h.title || 'Untitled', 200),
     link: String(h.link || '').trim(),
@@ -156,6 +159,7 @@ function normalizeSummaryData(input) {
 
   if (highlights.length === 0 && tier1.length > 0) {
     highlights = tier1.map((h) => ({
+      ...h,
       rank: h.rank,
       title: h.title,
       link: h.link,
@@ -173,6 +177,9 @@ function normalizeSummaryData(input) {
       const key = String(h.link || h.title || '');
       const hit = tier1Lookup.get(key);
       return {
+        ...h,
+        fullContentMeta: hit?.fullContentMeta || h.fullContentMeta,
+        origin: hit?.origin || h.origin,
         rank: Number.isFinite(Number(h.rank)) ? Number(h.rank) : idx + 1,
         title: cleanText(h.title || hit?.title || 'Untitled', 200),
         link: String(h.link || hit?.link || '').trim(),
@@ -180,7 +187,7 @@ function normalizeSummaryData(input) {
         category: ensureCategory(h.category || hit?.category),
         reason: cleanText(h.reason || hit?.summary || '建议优先阅读该文。', 90),
         summary: cleanText(h.summary || hit?.summary || '', 360),
-        keyPoints: Array.isArray(h.keyPoints) ? h.keyPoints.slice(0, 3).map(v => cleanText(v, 80)).filter(Boolean) : (hit?.keyPoints || []),
+        keyPoints: Array.isArray(h.keyPoints) ? h.keyPoints.slice(0, 5).map(v => cleanText(v, 80)).filter(Boolean) : (hit?.keyPoints || []),
         action: cleanText(h.action || hit?.action || '', 120),
         risk: cleanText(h.risk || hit?.risk || '', 120)
       };
@@ -212,6 +219,7 @@ function normalizeSummaryData(input) {
     summary.categories = computed.categories;
   }
 
+  highlights = highlights.map(unmark);
   const qualitySummary = summarizeQualityGates(base.metadata?.qualityGates);
   const mergedQualityGates = {
     ...(base.metadata?.qualityGates && typeof base.metadata.qualityGates === 'object'
@@ -252,8 +260,19 @@ function getQualityGateText(data) {
 /**
  * 输出 Markdown 格式
  */
-function formatMarkdown(rawData) {
+function publishable(rawData, display = false) {
   const data = normalizeSummaryData(rawData);
+  assertLinks([...data.tier1, ...data.tier2, ...data.highlights,
+    ...flattenByCategory(data.byCategory), ...(data.otherTopArticles || [])]);
+  if (display) {
+    data.highlights = data.highlights.map(row => row.fullContentMeta?.summaryOnly
+      ? { ...row, title: `【仅基于摘要】${row.title}`, risk: `仅基于摘要，未取得原文。${row.risk || ''}` } : row);
+  }
+  return data;
+}
+
+function formatMarkdown(rawData) {
+  const data = publishable(rawData, true);
   const qualityText = getQualityGateText(data);
   const highlights = Array.isArray(data.highlights) ? data.highlights : [];
   const byCategory = data.byCategory && typeof data.byCategory === 'object' ? data.byCategory : {};
@@ -325,7 +344,7 @@ function formatMarkdown(rawData) {
  * - 内置样式保证最差也好看，不绑定任何渠道特定字段
  */
 function formatHtml(rawData) {
-  const data = normalizeSummaryData(rawData);
+  const data = publishable(rawData, true);
   const qualityText = getQualityGateText(data);
   const highlights = Array.isArray(data.highlights) ? data.highlights : [];
   const byCategory = data.byCategory && typeof data.byCategory === 'object' ? data.byCategory : {};
@@ -509,7 +528,7 @@ function formatHtml(rawData) {
  * 输出 JSON 格式（归一化后的结构化数据）
  */
 function formatJson(rawData) {
-  return normalizeSummaryData(rawData);
+  return publishable(rawData);
 }
 
 // ==================== 主函数 ====================
