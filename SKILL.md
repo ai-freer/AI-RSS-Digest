@@ -4,7 +4,7 @@ description: >-
   AI-RSS-Digest：生成 RSS 日报、中文 AI 与技术阅读摘要。通过 Agent 候选评审、
   类型化评分、事件去重、跨期新增信息判断、逐篇精读与周期复盘，筛选值得读的内容。
   本地脚本校验和留档，不调用外部 LLM API。
-version: 4.4.0
+version: 4.4.1
 ---
 
 # AI-RSS-Digest
@@ -129,7 +129,7 @@ node scripts/editorial-cli.js evaluate --goldFile /absolute/path/to/human-gold.j
 - [信源](reference/GUIDE-sources.md)
 - [借鉴与边界](reference/EDITORIAL-DESIGN.md)
 
-## 字段契约与输出校验（4.4.0）
+## 字段契约与输出校验（4.4.1）
 
 - `source` 是发现信源名称（如 AIHOT、36氪），不保证是域名，不等于原发布方；不改写为 link 的 hostname。`link` 是发现链接，`origin.url` 是从 RSS 明确原文链接确认的地址，`fullContentMeta.originalUrl` 是补抓目标，均不等同于独立事实核验。缺原文依据时发布方未知，不猜测。
 - `language` 是信源配置的语言分类，用于筛源；`zh` 不保证补抓原文为中文，`global` 不代表英文。不能从 origin.url 推断原文语言；摘要默认中文，与信源分类独立。

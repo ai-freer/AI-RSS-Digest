@@ -472,6 +472,9 @@ function ensureSummaryShape(data, fetchData = {}) {
   const sourceByLink = new Map(fetchTop.map(a => [a.link, a]));
   for (const row of tier1) {
     const original = sourceByLink.get(row.link);
+    if ((!row.source || row.source.toLowerCase() === 'unknown') && safeText(original?.source)) {
+      row.source = safeText(original.source);
+    }
     if (original?.source === 'AIHOT' || original?.fullContentMeta) {
       row.fullContentMeta = original.fullContentMeta || { summaryOnly: true, fetchedFrom: 'rss', label: '仅基于摘要' };
       row.origin = original.origin || null;

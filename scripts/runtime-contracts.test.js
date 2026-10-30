@@ -130,3 +130,27 @@ test('invalid publication links leave an existing output file untouched', () => 
     assert.equal(fs.readFileSync(output,'utf8'),'previous valid report');
   } finally { fs.rmSync(dir,{recursive:true,force:true}); }
 });
+
+test('deep-read missing source is restored from matching selected candidate', () => {
+  const {main: assemble} = require('./assemble-summary');
+  const {formatJson,formatMarkdown} = require('./output-formatter');
+  const topArticles = [
+    {link:'https://aihot.news/items/real1',source:'AIHOT'},
+    {link:'https://fixtures.test/article',source:'36氪'},
+    {link:'https://fixtures.test/existing',source:'原始信源'},
+    {link:'https://fixtures.test/empty',source:''}
+  ];
+  const rows = [
+    {...item('一。二。三。四。五。'),link:topArticles[0].link,source:undefined},
+    {...item('一。二。三。四。五。'),link:topArticles[1].link,source:'  '},
+    {...item('一。二。三。四。五。'),link:topArticles[2].link,source:'明确来源'},
+    {...item('一。二。三。四。五。'),link:topArticles[3].link,source:'unknown'},
+    {...item('一。二。三。四。五。'),link:'https://fixtures.test/unmatched',source:undefined}
+  ];
+  const fetchData = {topArticles,otherTopArticles:[]};
+  const result = assemble({params:{deepReadData:rows,tier2Data:{},fetchData}}).result;
+  assert.deepEqual(result.tier1.map(a=>a.source),['AIHOT','36氪','明确来源','unknown','unknown']);
+  const validated = ensureSummaryShape(result,fetchData);
+  assert.deepEqual(formatJson(validated).tier1.map(a=>a.source),['AIHOT','36氪','明确来源','unknown','unknown']);
+  assert.match(formatMarkdown(validated),/📰 AIHOT/);
+});

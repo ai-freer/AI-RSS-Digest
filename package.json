@@ -1,6 +1,6 @@
 {
   "name": "ai-rss-digest",
-  "version": "4.4.0",
+  "version": "4.4.1",
   "description": "AI-RSS-Digest: Agent-reviewed RSS selection, event deduplication and deep reading",
   "engines": {
     "node": ">=18.0.0"

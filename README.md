@@ -55,6 +55,8 @@ These are offline behavior checks, not proof of improved editorial accuracy. The
 
 Version 4.1 uses XML DOM parsing, reports body coverage, and keeps local pending/deferred records outside model prompts. Every original candidate remains accountable. Low body coverage or pending-input is a collection/material issue, not evidence that no worthwhile articles exist.
 
+4.4.1: Restore missing Tier1 source from the selected candidate while preserving an explicitly provided source.
+
 4.4.0: Preserve complete structured text, reject overlong Tier2 summaries for rewriting, and make prompt excerpts grapheme-safe. JSON consumers must use fullContentMeta.summaryOnly; visible badges are rendered only in Markdown/HTML. Document source/language semantics and reject explicit placeholder links before deduplication, review and publication.
 
 4.3.2: Add opt-in environment host skips and normalized failure codes; preserve quality warnings and reviewed tier membership during fallback; cover RSS body reads with request timeouts; clarify per-article evidence and daily advice prompts.
